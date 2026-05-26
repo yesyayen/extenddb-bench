@@ -52,6 +52,20 @@ pub struct StepRecord {
     pub lg_rss_max_bytes: u64,
     pub lg_bottlenecked: bool,
     pub histogram_file: String,
+    /// Per-op-kind p99 split (only set for workloads that expose `op_kind`,
+    /// e.g. `mixed-rw`). Otherwise omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_p99_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_p50_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_p99_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_p50_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_count: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,11 +109,23 @@ pub fn build_step_record(
     pct: Percentiles,
     lg: LgHealthReport,
     histogram_file: String,
+    split: Option<(SplitPct, SplitPct)>,
 ) -> StepRecord {
     let error_rate = if total_requests + errors_total == 0 {
         0.0
     } else {
         errors_total as f64 / (total_requests + errors_total) as f64
+    };
+    let (read_p50, read_p99, read_count, write_p50, write_p99, write_count) = match split {
+        Some((r, w)) => (
+            Some(r.p50_us),
+            Some(r.p99_us),
+            Some(r.count),
+            Some(w.p50_us),
+            Some(w.p99_us),
+            Some(w.count),
+        ),
+        None => (None, None, None, None, None, None),
     };
     StepRecord {
         step_target_rps: target_rps,
@@ -118,7 +144,21 @@ pub fn build_step_record(
         lg_rss_max_bytes: lg.rss_max_bytes,
         lg_bottlenecked: lg.bottlenecked,
         histogram_file,
+        read_p50_us: read_p50,
+        read_p99_us: read_p99,
+        read_count,
+        write_p50_us: write_p50,
+        write_p99_us: write_p99,
+        write_count,
     }
+}
+
+/// Per-op-kind percentile slice for split records.
+#[derive(Debug, Clone, Copy)]
+pub struct SplitPct {
+    pub p50_us: u64,
+    pub p99_us: u64,
+    pub count: u64,
 }
 
 const SATURATION_P99_THRESHOLD_US: u64 = 100_000; // 100 ms
@@ -255,13 +295,15 @@ fn write_summary_to<W: Write>(
     writeln!(out)?;
     writeln!(
         out,
-        "| target_rps | iter | achieved_rps | p50_us | p90_us | p99_us | p99.9_us | errors | err_rate | LG_cpu_p99 | LG bottleneck |"
+        "| target_rps | iter | achieved_rps | p50_us | p90_us | p99_us | p99.9_us | r_p99 | w_p99 | errors | err_rate | LG_cpu_p99 | LG bottleneck |"
     )?;
-    writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|")?;
+    writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|---|---|")?;
     for r in records {
+        let r_p99 = r.read_p99_us.map(|v| v.to_string()).unwrap_or_else(|| "-".into());
+        let w_p99 = r.write_p99_us.map(|v| v.to_string()).unwrap_or_else(|| "-".into());
         writeln!(
             out,
-            "| {} | {} | {:.1} | {} | {} | {} | {} | {} | {:.3} | {:.1}% | {} |",
+            "| {} | {} | {:.1} | {} | {} | {} | {} | {} | {} | {} | {:.3} | {:.1}% | {} |",
             r.step_target_rps,
             r.iteration,
             r.achieved_rps,
@@ -269,6 +311,8 @@ fn write_summary_to<W: Write>(
             r.p90_us,
             r.p99_us,
             r.p999_us,
+            r_p99,
+            w_p99,
             r.errors_total,
             r.error_rate,
             r.lg_cpu_p99_pct,
@@ -360,6 +404,12 @@ mod tests {
             lg_rss_max_bytes: 1_000_000,
             lg_bottlenecked: false,
             histogram_file: format!("step-{rps:06}-iter-{iter}.hgrm"),
+            read_p50_us: None,
+            read_p99_us: None,
+            read_count: None,
+            write_p50_us: None,
+            write_p99_us: None,
+            write_count: None,
         }
     }
 

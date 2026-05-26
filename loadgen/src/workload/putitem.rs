@@ -21,13 +21,13 @@ impl PutItem1Kb {
 
     /// Deterministic payload-from-key. Lets the SUT cache compress the
     /// payload distribution stably across iterations.
-    fn payload(&self, key: u64) -> String {
-        let mut s = String::with_capacity(self.payload_size);
+    pub fn payload(key: u64, payload_size: usize) -> String {
+        let mut s = String::with_capacity(payload_size);
         let chunk = format!("{key:016x}");
-        while s.len() + chunk.len() <= self.payload_size {
+        while s.len() + chunk.len() <= payload_size {
             s.push_str(&chunk);
         }
-        while s.len() < self.payload_size {
+        while s.len() < payload_size {
             s.push('=');
         }
         s
@@ -43,7 +43,7 @@ impl Workload for PutItem1Kb {
     async fn execute(&self, client: &DdbClient, rng_seed: u64) -> Result<Duration> {
         let mut rng = fastrand::Rng::with_seed(rng_seed);
         let key = rng.u64(0..self.keyspace);
-        let val = self.payload(key);
+        let val = Self::payload(key, self.payload_size);
         let started = Instant::now();
         client
             .put_item()
@@ -62,16 +62,14 @@ mod tests {
 
     #[test]
     fn payload_is_exact_size() {
-        let w = PutItem1Kb::new("bench".into(), 100, 1024);
         for k in 0..10 {
-            assert_eq!(w.payload(k).len(), 1024);
+            assert_eq!(PutItem1Kb::payload(k, 1024).len(), 1024);
         }
     }
 
     #[test]
     fn payload_is_deterministic_per_key() {
-        let w = PutItem1Kb::new("bench".into(), 100, 256);
-        assert_eq!(w.payload(42), w.payload(42));
-        assert_ne!(w.payload(42), w.payload(43));
+        assert_eq!(PutItem1Kb::payload(42, 256), PutItem1Kb::payload(42, 256));
+        assert_ne!(PutItem1Kb::payload(42, 256), PutItem1Kb::payload(43, 256));
     }
 }

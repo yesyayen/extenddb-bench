@@ -1,0 +1,9 @@
+# mixed-rw sweep at the default 80:20 read:write split. Read-side cliff
+# pulls dominant signal up; write side caps it earlier, so steps are
+# spaced between read and write defaults.
+1000
+5000
+25000
+75000
+150000
+250000

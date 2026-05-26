@@ -1,0 +1,9 @@
+# getitem-1kb / mixed-rw read-side sweep. Reads typically cliff later than
+# writes against ExtendDB; finer steps near the expected knee.
+1000
+5000
+25000
+75000
+150000
+250000
+400000

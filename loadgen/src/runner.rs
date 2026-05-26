@@ -142,6 +142,25 @@ pub async fn run(args: RunArgs) -> Result<()> {
             write_hgrm(&outcome.histogram, &output_dir.join(&hgrm_name))
                 .with_context(|| format!("write {hgrm_name}"))?;
 
+            let split = if outcome.has_split {
+                let r = Percentiles::from_histogram(&outcome.read_hist);
+                let w = Percentiles::from_histogram(&outcome.write_hist);
+                Some((
+                    output::SplitPct {
+                        p50_us: r.p50_us,
+                        p99_us: r.p99_us,
+                        count: outcome.read_hist.len(),
+                    },
+                    output::SplitPct {
+                        p50_us: w.p50_us,
+                        p99_us: w.p99_us,
+                        count: outcome.write_hist.len(),
+                    },
+                ))
+            } else {
+                None
+            };
+
             let record = output::build_step_record(
                 target_rps,
                 iteration,
@@ -151,6 +170,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
                 pct,
                 outcome.lg,
                 hgrm_name,
+                split,
             );
             tracing::info!(
                 target: "extenddb_bench",
@@ -205,6 +225,9 @@ struct StepOutcome {
     errors: u64,
     achieved_rps: f64,
     lg: crate::lg_health::LgHealthReport,
+    read_hist: Histogram<u64>,
+    write_hist: Histogram<u64>,
+    has_split: bool,
 }
 
 async fn run_step(
@@ -230,6 +253,8 @@ async fn run_step(
     // warmup histogram is discarded; measure histogram is what we keep.
     let measure_hist: Arc<Mutex<Histogram<u64>>> = Arc::new(Mutex::new(new_latency_histogram()));
     let warmup_hist: Arc<Mutex<Histogram<u64>>> = Arc::new(Mutex::new(new_latency_histogram()));
+    let read_hist: Arc<Mutex<Histogram<u64>>> = Arc::new(Mutex::new(new_latency_histogram()));
+    let write_hist: Arc<Mutex<Histogram<u64>>> = Arc::new(Mutex::new(new_latency_histogram()));
 
     let successes = Arc::new(AtomicU64::new(0));
     let errors = Arc::new(AtomicU64::new(0));
@@ -253,11 +278,7 @@ async fn run_step(
         limiter.until_ready().await;
         let in_warmup = now < warmup_until;
 
-        // LG safety belt: if too many tasks are in flight (e.g. SUT can't
-        // keep up at high target RPS), drop new dispatches and count them
-        // as overflow. This prevents the LG from spawning millions of
-        // tokio tasks when the SUT is saturated. Overflow drops increment
-        // the corresponding errors counter so they trigger the cliff rule.
+        // Errors increment outside the spawn (overflow) need an op label too.
         let max_inflight: u64 = (connections as u64).saturating_mul(8).max(256);
         if inflight.load(Ordering::Relaxed) >= max_inflight {
             if in_warmup {
@@ -265,7 +286,7 @@ async fn run_step(
             } else {
                 errors.fetch_add(1, Ordering::Relaxed);
             }
-            ::metrics::counter!(metrics::names::ERRORS_TOTAL, "op" => "putitem", "reason" => "lg_overflow").increment(1);
+            ::metrics::counter!(metrics::names::ERRORS_TOTAL, "op" => "overflow", "reason" => "lg_overflow").increment(1);
             continue;
         }
 
@@ -281,6 +302,16 @@ async fn run_step(
         let inflight = inflight.clone();
         next_seed = next_seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let seed = next_seed;
+        let op_kind = workload.op_kind(seed);
+        let split_hist: Option<Arc<Mutex<Histogram<u64>>>> = if !in_warmup {
+            match op_kind {
+                Some("read") => Some(read_hist.clone()),
+                Some("write") => Some(write_hist.clone()),
+                _ => None,
+            }
+        } else {
+            None
+        };
         let task = tokio::spawn(async move {
             inflight.fetch_add(1, Ordering::Relaxed);
             ::metrics::gauge!(metrics::names::INFLIGHT).set(inflight.load(Ordering::Relaxed) as f64);
@@ -293,13 +324,20 @@ async fn run_step(
                     if let Ok(mut h) = target_hist.lock() {
                         let _ = h.record(bucket);
                     }
+                    if let Some(split) = split_hist {
+                        if let Ok(mut h) = split.lock() {
+                            let _ = h.record(bucket);
+                        }
+                    }
                     successes.fetch_add(1, Ordering::Relaxed);
-                    ::metrics::histogram!(metrics::names::REQUEST_DURATION, "op" => "putitem", "status" => "ok")
+                    let op_label = op_kind.unwrap_or("single");
+                    ::metrics::histogram!(metrics::names::REQUEST_DURATION, "op" => op_label, "status" => "ok")
                         .record(latency.as_secs_f64());
                 }
                 Err(e) => {
                     errors.fetch_add(1, Ordering::Relaxed);
-                    ::metrics::counter!(metrics::names::ERRORS_TOTAL, "op" => "putitem").increment(1);
+                    let op_label = op_kind.unwrap_or("single");
+                    ::metrics::counter!(metrics::names::ERRORS_TOTAL, "op" => op_label).increment(1);
                     tracing::debug!(target: "extenddb_bench", error = ?e, "request failed");
                 }
             }
@@ -323,6 +361,15 @@ async fn run_step(
         &mut *measure_hist.lock().expect("measure hist poisoned"),
         new_latency_histogram(),
     );
+    let final_read: Histogram<u64> = std::mem::replace(
+        &mut *read_hist.lock().expect("read hist poisoned"),
+        new_latency_histogram(),
+    );
+    let final_write: Histogram<u64> = std::mem::replace(
+        &mut *write_hist.lock().expect("write hist poisoned"),
+        new_latency_histogram(),
+    );
+    let has_split = (final_read.len() + final_write.len()) > 0;
     let successes_n = successes.load(Ordering::Relaxed);
     let errors_n = errors.load(Ordering::Relaxed);
     let achieved = (successes_n + errors_n) as f64 / duration.as_secs_f64();
@@ -334,5 +381,8 @@ async fn run_step(
         errors: errors_n,
         achieved_rps: achieved,
         lg: lg_report,
+        read_hist: final_read,
+        write_hist: final_write,
+        has_split,
     })
 }
