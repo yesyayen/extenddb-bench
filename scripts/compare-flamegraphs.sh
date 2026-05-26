@@ -9,26 +9,22 @@
 # Generic usage (one --leg flag per leg):
 #   scripts/compare-flamegraphs.sh \
 #     --workload getitem-1kb --rps 5000 --duration 60 \
-#     --leg 'baseline:sha=140a1e5ee5d6f96251f29d1703d0b48ecd19efb1' \
-#     --leg 'pr-off:sha=d640a7764bbd5418216fb455323b46c0530f6f14:patch=configs/auth-cache-off.toml' \
-#     --leg 'pr-on:sha=d640a7764bbd5418216fb455323b46c0530f6f14:patch=configs/auth-cache-on.toml'
+#     --leg 'baseline:sha=<sha-A>' \
+#     --leg 'tweaked:sha=<sha-B>:patch=/tmp/my-patch.toml'
 #
 # Each --leg value has the form: <label>:sha=<sha>[:patch=<toml-file>|:clear]
 #   - patch=<file>: apply this TOML fragment via apply-config-patch.sh
 #   - clear: strip any existing managed block before this leg
 #   - omit both: leave the existing config alone
 #
-# Convenience shortcut for PR #122 (auth-cache):
-#   scripts/compare-flamegraphs.sh --pr-cache \
-#     --workload getitem-1kb --rps 5000 --duration 60
-# This wires up the three canonical legs (baseline, pr-off, pr-on) using the
-# patch files at configs/auth-cache-off.toml and configs/auth-cache-on.toml.
+# For ad-hoc per-PR experiments, write the patch fragment to /tmp/<x>.toml
+# at runtime; do NOT check PR-specific configs into this repo.
 #
 # Output: results/compare-flamegraphs/<run-id>/
-#   - <leg>/{flame.svg,perf.folded,meta.json} per leg
 #   - diffs/<a>-vs-<b>.svg for every ordered pair
 #   - report.md
 #   - all artifacts also synced to s3://<bucket>/flamegraphs/<run-id>/
+#   (Per-leg flame.svg + perf.folded land in results/flamegraphs/<run-id>/<leg>/.)
 
 set -euo pipefail
 
@@ -44,7 +40,6 @@ WARMUP=15
 FREQ=99
 EXTRA_ARGS=""
 LEGS=()
-PR_CACHE_SHORTCUT=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,25 +50,11 @@ while [[ $# -gt 0 ]]; do
     --freq)       FREQ="$2"; shift 2;;
     --extra-args) EXTRA_ARGS="$2"; shift 2;;
     --leg)        LEGS+=("$2"); shift 2;;
-    --pr-cache)   PR_CACHE_SHORTCUT=true; shift;;
     -h|--help)
       sed -n '3,30p' "$0"; exit 0;;
     *) echo "unknown flag: $1" >&2; exit 2;;
   esac
 done
-
-if $PR_CACHE_SHORTCUT; then
-  if [[ ${#LEGS[@]} -gt 0 ]]; then
-    echo "--pr-cache and --leg are mutually exclusive" >&2; exit 2
-  fi
-  BASELINE_SHA="140a1e5ee5d6f96251f29d1703d0b48ecd19efb1"
-  PR_SHA="d640a7764bbd5418216fb455323b46c0530f6f14"
-  LEGS=(
-    "baseline:sha=${BASELINE_SHA}:clear"
-    "pr-off:sha=${PR_SHA}:patch=${REPO_ROOT}/configs/auth-cache-off.toml"
-    "pr-on:sha=${PR_SHA}:patch=${REPO_ROOT}/configs/auth-cache-on.toml"
-  )
-fi
 
 if [[ -z "$WORKLOAD" ]]; then echo "--workload is required" >&2; exit 2; fi
 if [[ ${#LEGS[@]} -lt 2 ]]; then echo "need at least 2 --leg specs" >&2; exit 2; fi
