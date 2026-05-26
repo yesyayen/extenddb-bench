@@ -73,6 +73,11 @@ export class NetworkStack extends cdk.Stack {
     );
     this.benchSecurityGroup.addIngressRule(
       this.benchSecurityGroup,
+      ec2.Port.tcp(5432),
+      "Postgres dataplane for Grafana grafana_ro datasource (intra-SG)",
+    );
+    this.benchSecurityGroup.addIngressRule(
+      this.benchSecurityGroup,
       ec2.Port.tcp(3000),
       "Grafana UI (intra-SG; operator reaches via SSM port-forward)",
     );

@@ -62,8 +62,11 @@ chown postgres:postgres /data/pgsql
 export PGDATA=/data/pgsql/data
 if [ ! -d "$PGDATA" ]; then
   sudo -u postgres /usr/bin/initdb -D "$PGDATA" --auth-local=peer --auth-host=md5 --no-locale --encoding=UTF8
-  # Listen on localhost only.
-  sed -i "s/^#listen_addresses.*/listen_addresses = '127.0.0.1'/" "$PGDATA/postgresql.conf"
+  # Listen on loopback + all interfaces; pg_hba below restricts who can connect.
+  sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" "$PGDATA/postgresql.conf"
+  # Allow grafana_ro on the Monitor to query the catalog DB. Bench SG is the
+  # only path in (intra-SG only on TCP 5432) so this is fenced at the network.
+  echo "host    all    grafana_ro    10.42.0.0/16    md5" >> "$PGDATA/pg_hba.conf"
   # Enable pg_stat_statements (needed by postgres_exporter --collector.stat_statements).
   sed -i "s/^#shared_preload_libraries.*/shared_preload_libraries = 'pg_stat_statements'/" "$PGDATA/postgresql.conf"
   echo "pg_stat_statements.track = 'all'"     >> "$PGDATA/postgresql.conf"
@@ -292,6 +295,26 @@ END \$\$;
 GRANT pg_monitor TO pg_exporter;
 -- pg_stat_statements requires GRANT on the extension's view.
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+SQL
+
+# Read-only Grafana role used by the Monitor's `extenddb-pg` datasource.
+# Static password: this DB is on a private subnet, fenced by SG (intra-SG only).
+GRAFANA_RO_PASS="grafana-ro-bench"
+sudo -u postgres /usr/bin/psql <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'grafana_ro') THEN
+    CREATE ROLE grafana_ro LOGIN PASSWORD '$GRAFANA_RO_PASS';
+  ELSE
+    ALTER ROLE grafana_ro WITH LOGIN PASSWORD '$GRAFANA_RO_PASS';
+  END IF;
+END \$\$;
+GRANT pg_read_all_stats TO grafana_ro;
+SQL
+sudo -u postgres /usr/bin/psql -d extenddb_catalog <<SQL
+GRANT CONNECT ON DATABASE extenddb_catalog TO grafana_ro;
+GRANT USAGE ON SCHEMA public TO grafana_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO grafana_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO grafana_ro;
 SQL
 
 PGE_VERSION=0.15.0

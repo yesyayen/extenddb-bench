@@ -130,6 +130,16 @@ emit_json /etc/prometheus/targets/bench.json        "$bench_targets"        '{"r
 emit_json /etc/prometheus/targets/node.json         "$node_targets"         '{}'
 emit_json /etc/prometheus/targets/postgres.json     "$pg_targets"           '{"role":"sut"}'
 emit_json /etc/prometheus/targets/extenddb-app.json "$extenddb_app_targets" '{"role":"sut"}'
+
+# Keep the extenddb-pg Grafana datasource yaml in sync with the live SUT IP.
+# Reload Grafana only when the rendered url actually changed.
+DS=/etc/grafana/provisioning/datasources/extenddb-pg.yaml
+if [ -n "$SUT_IP" ] && [ "$SUT_IP" != "None" ] && [ -f "$DS" ]; then
+  if ! grep -q "url: ${SUT_IP}:5432" "$DS"; then
+    sed -i "s|^    url: .*:5432|    url: ${SUT_IP}:5432|" "$DS"
+    systemctl reload grafana-server >/dev/null 2>&1 || systemctl restart grafana-server >/dev/null 2>&1 || true
+  fi
+fi
 SCRIPT
 sed -i "s|__SSM_PREFIX_PLACEHOLDER__|$SSM_PREFIX|; s|__AWS_REGION_PLACEHOLDER__|$AWS_REGION|" /usr/local/bin/refresh-targets
 chmod 755 /usr/local/bin/refresh-targets
@@ -239,6 +249,38 @@ datasources:
     isDefault: true
     editable: false
 YAML
+
+# extenddb-pg: Postgres datasource for the legacy local-style ExtendDB dashboard
+# that queries the `metrics` table directly. SUT IP is filled in at boot from
+# SSM, and re-rendered by refresh-targets.timer when the IP changes.
+render_extenddb_pg_datasource() {
+  local sut_ip
+  sut_ip="$(aws ssm get-parameter --region "$AWS_REGION" --name "${SSM_PREFIX}sut-private-ip" --query Parameter.Value --output text 2>/dev/null || echo)"
+  if [ -z "$sut_ip" ] || [ "$sut_ip" = "None" ]; then
+    sut_ip="127.0.0.1"   # placeholder; refresh-targets will replace once SUT comes up
+  fi
+  cat > /etc/grafana/provisioning/datasources/extenddb-pg.yaml <<EOF
+apiVersion: 1
+datasources:
+  - name: ExtendDB-PG
+    uid: extenddb-pg
+    type: postgres
+    access: proxy
+    url: ${sut_ip}:5432
+    user: grafana_ro
+    database: extenddb_catalog
+    isDefault: false
+    editable: false
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false
+    secureJsonData:
+      password: grafana-ro-bench
+EOF
+  chown grafana:grafana /etc/grafana/provisioning/datasources/extenddb-pg.yaml 2>/dev/null || true
+}
+render_extenddb_pg_datasource
 
 cat > /etc/grafana/provisioning/dashboards/default.yaml <<'YAML'
 apiVersion: 1
