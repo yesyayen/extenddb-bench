@@ -122,13 +122,16 @@ ssm_run_lg_async() {
 LOAD_DURATION=$((WARMUP + DURATION + 30))
 LOAD_CMD_ID=""
 if [[ "$SKIP_LOAD" == "false" ]]; then
-  echo "[load] starting bench-run constant-rps load on LG for ${LOAD_DURATION}s"
+  echo "[load] starting bench-run constant-rps load on LG for ${LOAD_DURATION}s (rps-sweep=$RPS, iter=1)"
   LOAD_SCRIPT="set -euxo pipefail
 mkdir -p /tmp/flamegraph-load/$RUN_ID/$LEG_LABEL
 bench-run \\
   --workload $WORKLOAD \\
-  --constant-rps $RPS \\
+  --rps-sweep $RPS \\
   --duration ${LOAD_DURATION}s \\
+  --warmup 0s \\
+  --cooldown 0s \\
+  --iterations 1 \\
   --output /tmp/flamegraph-load/$RUN_ID/$LEG_LABEL \\
   $EXTRA_ARGS"
   LOAD_CMD_ID="$(ssm_run_lg_async "$LOAD_SCRIPT")"
