@@ -23,6 +23,21 @@ if [[ $# -lt 3 ]]; then
   exit 2
 fi
 
+WITH_FLAMEGRAPH=false
+FG_RPS=""
+FG_DURATION="60"
+# Strip our own flags before consuming the positional SHAs.
+FILTERED=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --with-flamegraph)    WITH_FLAMEGRAPH=true; shift;;
+    --flamegraph-rps)     FG_RPS="$2"; shift 2;;
+    --flamegraph-duration) FG_DURATION="$2"; shift 2;;
+    *) FILTERED+=("$1"); shift;;
+  esac
+done
+set -- "${FILTERED[@]}"
+
 BASELINE="$1"; shift
 CANDIDATE="$1"; shift
 WORKLOAD="$1"; shift
@@ -167,3 +182,32 @@ echo "==== report-compare ===="
   --candidate "$LOCAL_OUT/candidate" \
   --output    "$LOCAL_OUT" \
   --compare-id "$COMPARE_ID"
+
+if $WITH_FLAMEGRAPH; then
+  echo
+  echo "==== flamegraph compare ===="
+  # Default the steady RPS to 80% of the lower of the two achieved RPS values
+  # so neither leg saturates during profiling.
+  if [[ -z "$FG_RPS" ]]; then
+    FG_RPS="$(python3 - <<PY 2>/dev/null || echo 1000
+import json, glob
+rps_vals = []
+for side in ('baseline','candidate'):
+    for p in glob.glob('$LOCAL_OUT/' + side + '/**/sweep.json', recursive=True):
+        try:
+            d = json.load(open(p))
+            for s in d.get('steps', []):
+                if 'achieved_rps' in s:
+                    rps_vals.append(float(s['achieved_rps']))
+        except Exception:
+            pass
+print(int(min(rps_vals) * 0.8) if rps_vals else 1000)
+PY
+)"
+  fi
+  echo "flamegraph rps=$FG_RPS  duration=${FG_DURATION}s"
+  "$SCRIPT_DIR/compare-flamegraphs.sh" \
+    --workload "$WORKLOAD" --rps "$FG_RPS" --duration "$FG_DURATION" \
+    --leg "baseline:sha=${BASELINE}" \
+    --leg "candidate:sha=${CANDIDATE}"
+fi
