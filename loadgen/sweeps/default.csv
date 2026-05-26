@@ -1,0 +1,6 @@
+# Default v0.1 RPS sweep: 5 steps, 5x ratio between adjacent steps.
+1000
+5000
+25000
+100000
+250000
