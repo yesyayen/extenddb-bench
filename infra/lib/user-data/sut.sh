@@ -39,10 +39,21 @@ mark_status() {
 mark_status "starting"
 
 # 1. Base packages.
+#   - perf: kernel profiler used by scripts/flamegraph.sh
+#   - kernel-tools / perf may live in either pkg on AL2023; install both, ignore failures.
 dnf install -y --quiet --allowerasing \
   git tar xz jq gcc gcc-c++ make pkgconfig openssl-devel \
   python3 python3-pip \
   postgresql15 postgresql15-server postgresql15-contrib
+dnf install -y --quiet perf || dnf install -y --quiet kernel-tools || true
+
+# 1a. Profiler-friendly sysctls so unprivileged or hardened kernels don't
+# truncate stacks. We run perf as root so these are belt-and-suspenders.
+cat > /etc/sysctl.d/99-bench-perf.conf <<'SYSCTL'
+kernel.perf_event_paranoid = 1
+kernel.kptr_restrict = 0
+SYSCTL
+sysctl --system >/dev/null
 
 # 2. Data volume layout.
 # AL2023 NVMe naming: the secondary EBS volume is /dev/nvme1n1.
@@ -120,9 +131,25 @@ git rev-parse HEAD > /etc/extenddb-version
 
 # Build into a stable target dir on the data volume so subsequent rebuilds
 # are incremental even if the root volume is small.
+#
+# RUSTFLAGS='-C force-frame-pointers=yes': preserve frame pointers across the
+# full dependency tree so `perf record --call-graph fp` produces unbroken
+# stacks. Required for usable flamegraphs on aarch64 release builds (rustc
+# omits FPs by default in release on this target). ~2-5% steady-state perf
+# cost, applied uniformly across every SHA the bench builds, so SHA-vs-SHA
+# comparisons remain fair.
 export CARGO_TARGET_DIR=/data/extenddb/target
+export RUSTFLAGS="-C force-frame-pointers=yes"
 cargo build --release --bin extenddb
 install -m 755 "$CARGO_TARGET_DIR/release/extenddb" /usr/local/bin/extenddb
+
+# 5a. Inferno (Rust port of Brendan Gregg's flamegraph toolchain).
+# Provides inferno-collapse-perf + inferno-flamegraph + inferno-diff-folded.
+# Cargo install once; the binaries land in /root/.cargo/bin which is on PATH
+# under HOME=/root.
+if ! command -v inferno-flamegraph >/dev/null 2>&1; then
+  cargo install --quiet inferno --version '^0.11' --features cli
+fi
 
 mark_status "extenddb-built"
 

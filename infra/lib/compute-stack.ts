@@ -232,6 +232,7 @@ export class ComputeStack extends cdk.Stack {
                 "export HOME=/root",
                 ". /root/.cargo/env",
                 "export CARGO_TARGET_DIR=/data/extenddb/target",
+                "export RUSTFLAGS='-C force-frame-pointers=yes'",
                 "systemctl stop extenddb || true",
                 "cd /opt/extenddb",
                 "git fetch --quiet --all",
@@ -262,6 +263,183 @@ export class ComputeStack extends cdk.Stack {
     new cdk.CfnOutput(this, "SwapShaDocName", {
       value: swapDoc.name!,
       description: "SSM document for sequential SHA swap (compare-shas.sh)",
+    });
+
+    // SSM document: extenddb-bench-flamegraph.
+    // Captures a perf profile of the live ExtendDB process on the SUT,
+    // collapses + renders an SVG flamegraph, and uploads both the folded
+    // stacks (for later diffing) and the SVG to a caller-provided S3 URI.
+    //
+    // Caller is responsible for driving steady-state traffic on the LG
+    // during the capture window (scripts/flamegraph.sh handles that).
+    const flamegraphDoc = new ssm.CfnDocument(this, "FlamegraphDoc", {
+      name: "extenddb-bench-flamegraph",
+      documentType: "Command",
+      documentFormat: "YAML",
+      updateMethod: "NewVersion",
+      content: {
+        schemaVersion: "2.2",
+        description:
+          "extenddb-bench: capture a perf flamegraph of the running ExtendDB process and upload it to S3.",
+        parameters: {
+          duration_seconds: {
+            type: "String",
+            default: "30",
+            allowedPattern: "^[1-9][0-9]{0,2}$",
+            description: "perf record duration in seconds (1-999).",
+          },
+          freq_hz: {
+            type: "String",
+            default: "99",
+            allowedPattern: "^[1-9][0-9]{0,3}$",
+            description: "perf sampling frequency in Hz (1-9999, 99 typical).",
+          },
+          s3_uri: {
+            type: "String",
+            allowedPattern: "^s3://[a-z0-9.\\-]+(/.*)?$",
+            description: "Destination S3 URI prefix; flame.svg + perf.folded land under it.",
+          },
+          title: {
+            type: "String",
+            default: "extenddb flamegraph",
+            description: "Title shown on the SVG.",
+          },
+          subtitle: {
+            type: "String",
+            default: "",
+            description: "Subtitle shown on the SVG (workload, sha, rps, leg label).",
+          },
+        },
+        mainSteps: [
+          {
+            action: "aws:runShellScript",
+            name: "captureFlamegraph",
+            inputs: {
+              runCommand: [
+                "#!/bin/bash",
+                "set -euxo pipefail",
+                "export HOME=/root PATH=/root/.cargo/bin:$PATH",
+                "DURATION={{ duration_seconds }}",
+                "FREQ={{ freq_hz }}",
+                "S3_URI={{ s3_uri }}",
+                "TITLE='{{ title }}'",
+                "SUBTITLE='{{ subtitle }}'",
+                "PID=$(pgrep -f '/usr/local/bin/extenddb serve' | head -n1)",
+                "if [[ -z \"$PID\" ]]; then echo 'extenddb is not running; aborting'; exit 1; fi",
+                "command -v perf >/dev/null || { echo 'perf not installed (re-run sut bootstrap)'; exit 1; }",
+                "command -v inferno-flamegraph >/dev/null || { echo 'inferno not installed (re-run sut bootstrap)'; exit 1; }",
+                "WORK=$(mktemp -d)",
+                "cd \"$WORK\"",
+                "echo \"capturing $DURATION s @ $FREQ Hz, pid=$PID, sha=$(cat /etc/extenddb-version)\"",
+                "perf record -F \"$FREQ\" --call-graph fp -p \"$PID\" -o perf.data -- sleep \"$DURATION\"",
+                "perf script -i perf.data > perf.script",
+                "inferno-collapse-perf perf.script > perf.folded",
+                "if [[ -n \"$SUBTITLE\" ]]; then",
+                "  inferno-flamegraph --title \"$TITLE\" --subtitle \"$SUBTITLE\" < perf.folded > flame.svg",
+                "else",
+                "  inferno-flamegraph --title \"$TITLE\" < perf.folded > flame.svg",
+                "fi",
+                "aws s3 cp --no-progress perf.folded \"$S3_URI/perf.folded\"",
+                "aws s3 cp --no-progress flame.svg   \"$S3_URI/flame.svg\"",
+                "echo \"wrote $S3_URI/flame.svg ($(wc -c < flame.svg) bytes)\"",
+                "echo \"wrote $S3_URI/perf.folded ($(wc -l < perf.folded) folded stacks)\"",
+                "echo \"sha=$(cat /etc/extenddb-version)\"",
+                "rm -rf \"$WORK\"",
+              ],
+            },
+          },
+        ],
+      },
+    });
+    new cdk.CfnOutput(this, "FlamegraphDocName", {
+      value: flamegraphDoc.name!,
+      description: "SSM document for capturing flamegraphs (scripts/flamegraph.sh)",
+    });
+
+    // SSM document: extenddb-bench-apply-config-patch.
+    // Drops a TOML fragment into /etc/extenddb/extenddb.toml inside a
+    // fenced bench-managed block, then restarts ExtendDB and waits for
+    // /health. Pass `clear` parameter (any non-empty value) to wipe the
+    // managed block and restart with the original config.
+    //
+    // Used by compare-flamegraphs.sh to toggle e.g. [auth.cache] enabled
+    // on/off across legs without an SHA swap.
+    const applyConfigPatchDoc = new ssm.CfnDocument(this, "ApplyConfigPatchDoc", {
+      name: "extenddb-bench-apply-config-patch",
+      documentType: "Command",
+      documentFormat: "YAML",
+      updateMethod: "NewVersion",
+      content: {
+        schemaVersion: "2.2",
+        description:
+          "extenddb-bench: append a TOML fragment to extenddb.toml inside a managed block, restart, health-check.",
+        parameters: {
+          patch_b64: {
+            type: "String",
+            default: "",
+            description: "Base64-encoded TOML fragment; empty means no append.",
+          },
+          clear: {
+            type: "String",
+            default: "",
+            allowedPattern: "^(|true|false)$",
+            description: "If 'true', strip the existing managed block before applying patch_b64.",
+          },
+          label: {
+            type: "String",
+            default: "unlabeled",
+            description: "Human label written as a comment in the managed block.",
+          },
+        },
+        mainSteps: [
+          {
+            action: "aws:runShellScript",
+            name: "applyConfigPatch",
+            inputs: {
+              runCommand: [
+                "#!/bin/bash",
+                "set -euxo pipefail",
+                "PATCH_B64='{{ patch_b64 }}'",
+                "CLEAR='{{ clear }}'",
+                "LABEL='{{ label }}'",
+                "CFG=/etc/extenddb/extenddb.toml",
+                "START_MARK='# >>> bench-managed >>>'",
+                "END_MARK='# <<< bench-managed <<<'",
+                "if [[ \"$CLEAR\" == 'true' ]] || [[ -n \"$PATCH_B64\" ]]; then",
+                "  sed -i \"/$START_MARK/,/$END_MARK/d\" \"$CFG\"",
+                "fi",
+                "if [[ -n \"$PATCH_B64\" ]]; then",
+                "  {",
+                "    echo \"\"",
+                "    echo \"$START_MARK\"",
+                "    echo \"# label: $LABEL\"",
+                "    echo \"$PATCH_B64\" | base64 -d",
+                "    echo \"$END_MARK\"",
+                "  } >> \"$CFG\"",
+                "fi",
+                "systemctl restart extenddb",
+                "TLS_CA=/root/.extenddb/tls/cert.pem",
+                "BIND_ADDR=$(awk -F'\"' '/^bind_addr/ {print $2; exit}' \"$CFG\")",
+                "HEALTH_URL=https://${BIND_ADDR}:8000/health",
+                "for i in $(seq 1 60); do",
+                "  if curl --cacert \"$TLS_CA\" -fsS \"$HEALTH_URL\" >/dev/null 2>&1; then",
+                "    echo \"healthy after $i attempts; label=$LABEL; sha=$(cat /etc/extenddb-version)\"",
+                "    exit 0",
+                "  fi",
+                "  sleep 2",
+                "done",
+                "echo 'extenddb never became healthy after config patch'",
+                "systemctl status extenddb --no-pager || true",
+                "exit 1",
+              ],
+            },
+          },
+        ],
+      },
+    });
+    new cdk.CfnOutput(this, "ApplyConfigPatchDocName", {
+      value: applyConfigPatchDoc.name!,
+      description: "SSM document for toggling [auth.cache] etc. across legs",
     });
   }
 }
