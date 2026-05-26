@@ -118,20 +118,12 @@ install -m 755 "$CARGO_TARGET_DIR/release/extenddb" /usr/local/bin/extenddb
 mark_status "extenddb-built"
 
 # 6. Generate admin password and run `extenddb init`.
+# `extenddb init` will create the application user and the catalog/data DBs
+# using the postgres superuser credentials we just provisioned.
 ADMIN_USER=admin
 ADMIN_PASS="$(openssl rand -hex 24)"
 EXTENDDB_USER=extenddb
 EXTENDDB_PASS="extenddb-bench"
-
-sudo -u postgres /usr/bin/psql <<SQL
-DO \$\$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$EXTENDDB_USER') THEN
-    CREATE ROLE $EXTENDDB_USER LOGIN PASSWORD '$EXTENDDB_PASS';
-  ELSE
-    ALTER ROLE $EXTENDDB_USER WITH LOGIN PASSWORD '$EXTENDDB_PASS';
-  END IF;
-END \$\$;
-SQL
 
 mkdir -p /etc/extenddb /var/lib/extenddb
 chown root:root /etc/extenddb /var/lib/extenddb

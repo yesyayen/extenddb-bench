@@ -50,7 +50,8 @@ install -m 755 target/release/extenddb-bench /usr/local/bin/extenddb-bench
 # Convenience wrapper that fetches creds from SSM and execs extenddb-bench.
 cat > /usr/local/bin/bench-run <<EOF
 #!/bin/bash
-# Fetch bench creds from SSM, materialize the TLS cert, and exec extenddb-bench.
+# Fetch bench creds from SSM, install the SUT TLS cert into the OS trust store,
+# and exec extenddb-bench.
 set -euo pipefail
 SSM_PREFIX="$SSM_PREFIX"
 AWS_REGION="$AWS_REGION"
@@ -62,21 +63,22 @@ EXTENDDB_SHA="\$(fetch \${SSM_PREFIX}extenddb-sha)"
 TLS_CERT_B64="\$(fetch \${SSM_PREFIX}tls-cert-b64)"
 TABLE_NAME="\$(fetch \${SSM_PREFIX}table-name)"
 
-mkdir -p /etc/extenddb-bench
-echo "\$TLS_CERT_B64" | base64 -d > /etc/extenddb-bench/sut-tls.pem
-chmod 600 /etc/extenddb-bench/sut-tls.pem
+# Install the SUT cert into the AL2023 system trust store. update-ca-trust
+# regenerates /etc/pki/ca-trust/extracted/, which rustls-native-certs reads.
+mkdir -p /etc/pki/ca-trust/source/anchors
+echo "\$TLS_CERT_B64" | base64 -d > /etc/pki/ca-trust/source/anchors/extenddb-sut.pem
+chmod 644 /etc/pki/ca-trust/source/anchors/extenddb-sut.pem
+update-ca-trust extract
 
 export AWS_ACCESS_KEY_ID="\$ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="\$SECRET_ACCESS_KEY"
 export AWS_REGION="\$AWS_REGION"
 export EXTENDDB_BENCH_SHA="\$EXTENDDB_SHA"
-export EXTENDDB_BENCH_CA_BUNDLE=/etc/extenddb-bench/sut-tls.pem
 
 exec /usr/local/bin/extenddb-bench run \\
   --target "https://\$SUT_IP:8000" \\
   --table-name "\$TABLE_NAME" \\
   --aws-region "\$AWS_REGION" \\
-  --tls-ca-bundle /etc/extenddb-bench/sut-tls.pem \\
   "\$@"
 EOF
 chmod 755 /usr/local/bin/bench-run
