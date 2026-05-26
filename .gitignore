@@ -1,0 +1,38 @@
+# Rust
+loadgen/target/
+loadgen/**/*.rs.bk
+**/*.pdb
+
+# CDK
+infra/node_modules/
+infra/cdk.out/
+infra/.cdk.staging/
+infra/dist/
+infra/*.js
+infra/*.d.ts
+!infra/jest.config.js
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Bench results
+results/
+*.hgrm
+**/sweep.json
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local secrets / temp
+.env
+*.pem
+*.key
+.cdk-context.json

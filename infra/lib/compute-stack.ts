@@ -1,0 +1,229 @@
+import * as cdk from "aws-cdk-lib";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import * as ssm from "aws-cdk-lib/aws-ssm";
+import { Construct } from "constructs";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+export interface ComputeStackProps extends cdk.StackProps {
+  vpc: ec2.IVpc;
+  resultsBucket: s3.IBucket;
+  benchSecurityGroup: ec2.ISecurityGroup;
+  /** 40-char ExtendDB commit SHA (locked at synth time). */
+  extenddbSha: string;
+  /** Optional PR number, embedded in tags. */
+  extenddbPr?: number;
+  /** Bench harness repo URL. */
+  benchRepoUrl?: string;
+  /** Bench harness git ref. */
+  benchRepoRef?: string;
+}
+
+const SSM_PREFIX = "/extenddb-bench/";
+const SSM_PARAM_NAMES = [
+  "admin-password",
+  "access-key-id",
+  "secret-access-key",
+  "account-id",
+  "sut-private-ip",
+  "extenddb-sha",
+  "table-name",
+  "tls-cert-b64",
+];
+
+export class ComputeStack extends cdk.Stack {
+  public readonly sutInstance: ec2.Instance;
+  public readonly lgInstance: ec2.Instance;
+
+  constructor(scope: Construct, id: string, props: ComputeStackProps) {
+    super(scope, id, props);
+
+    const benchRepoUrl =
+      props.benchRepoUrl ?? "https://github.com/yesyayen/extenddb-bench";
+    const benchRepoRef = props.benchRepoRef ?? "main";
+
+    // Cluster placement group: lowest-latency intra-AZ networking.
+    const placementGroup = new ec2.PlacementGroup(this, "BenchPg", {
+      strategy: ec2.PlacementGroupStrategy.CLUSTER,
+    });
+
+    // AL2023 ARM64 AMI lookup (latest).
+    const ami = ec2.MachineImage.fromSsmParameter(
+      "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64",
+      { os: ec2.OperatingSystemType.LINUX },
+    );
+
+    // IAM role shared by both instances.
+    // SSM Session Manager + S3 results write + SSM Parameter Store read+write
+    // (scoped to the bench prefix).
+    const role = new iam.Role(this, "BenchInstanceRole", {
+      assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
+      description: "extenddb-bench: SSM + S3 results + SSM Parameter Store",
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore"),
+      ],
+    });
+    props.resultsBucket.grantReadWrite(role);
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:PutParameter",
+          "ssm:DeleteParameter",
+        ],
+        resources: [
+          `arn:aws:ssm:${this.region}:${this.account}:parameter${SSM_PREFIX}*`,
+        ],
+      }),
+    );
+    // SSM Parameter Store SecureString uses the AWS-managed default KMS key.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey"],
+        resources: ["*"],
+        conditions: {
+          StringEquals: { "kms:ViaService": `ssm.${this.region}.amazonaws.com` },
+        },
+      }),
+    );
+
+    // SSM Parameter resources (placeholders): created by CDK so they are
+    // cleaned up by `cdk destroy`. The SUT user-data overwrites them with
+    // real values at boot via `aws ssm put-parameter --overwrite`.
+    for (const name of SSM_PARAM_NAMES) {
+      new ssm.StringParameter(this, `Param${name}`, {
+        parameterName: `${SSM_PREFIX}${name}`,
+        stringValue: "<unset>",
+        description: `extenddb-bench placeholder for ${name}; populated by SUT user-data`,
+      });
+    }
+
+    // Render user-data scripts with placeholders substituted.
+    const sutUserData = renderUserData("sut.sh", {
+      __EXTENDDB_SHA__: props.extenddbSha,
+      __SSM_PREFIX__: SSM_PREFIX,
+      __AWS_REGION__: this.region,
+      __DATA_DEVICE__: "/dev/nvme1n1",
+    });
+    const lgUserData = renderUserData("lg.sh", {
+      __BENCH_REPO__: benchRepoUrl,
+      __BENCH_REF__: benchRepoRef,
+      __SSM_PREFIX__: SSM_PREFIX,
+      __AWS_REGION__: this.region,
+    });
+
+    // SUT: c7g.4xlarge with a 1 TB gp3 data volume attached separately.
+    // The data volume is created as a standalone Volume + VolumeAttachment so we
+    // can specify iops and throughput (the L2 Instance construct's blockDevices
+    // does not propagate `throughput` to the underlying CFN resource: see
+    // https://github.com/aws/aws-cdk/issues/34033).
+    this.sutInstance = new ec2.Instance(this, "Sut", {
+      vpc: props.vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.C7G,
+        ec2.InstanceSize.XLARGE4,
+      ),
+      machineImage: ami,
+      role,
+      securityGroup: props.benchSecurityGroup,
+      placementGroup,
+      blockDevices: [
+        {
+          deviceName: "/dev/xvda",
+          volume: ec2.BlockDeviceVolume.ebs(30, {
+            volumeType: ec2.EbsDeviceVolumeType.GP3,
+            deleteOnTermination: true,
+            encrypted: true,
+          }),
+        },
+      ],
+      requireImdsv2: true,
+      userDataCausesReplacement: true,
+    });
+    const sutDataVolume = new ec2.Volume(this, "SutDataVolume", {
+      availabilityZone: this.sutInstance.instanceAvailabilityZone,
+      size: cdk.Size.gibibytes(1024),
+      volumeType: ec2.EbsDeviceVolumeType.GP3,
+      iops: 16000,
+      throughput: 1000,
+      encrypted: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    sutDataVolume.grantAttachVolume(role, [this.sutInstance]);
+    new ec2.CfnVolumeAttachment(this, "SutDataAttach", {
+      instanceId: this.sutInstance.instanceId,
+      volumeId: sutDataVolume.volumeId,
+      device: "/dev/sdb",
+    });
+    this.sutInstance.addUserData(sutUserData);
+    cdk.Tags.of(this.sutInstance).add("Name", "extenddb-bench-sut");
+    cdk.Tags.of(this.sutInstance).add("role", "sut");
+
+    // LG: c7g.8xlarge, root volume only.
+    this.lgInstance = new ec2.Instance(this, "Lg", {
+      vpc: props.vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.C7G,
+        ec2.InstanceSize.XLARGE8,
+      ),
+      machineImage: ami,
+      role,
+      securityGroup: props.benchSecurityGroup,
+      placementGroup,
+      blockDevices: [
+        {
+          deviceName: "/dev/xvda",
+          volume: ec2.BlockDeviceVolume.ebs(30, {
+            volumeType: ec2.EbsDeviceVolumeType.GP3,
+            deleteOnTermination: true,
+            encrypted: true,
+          }),
+        },
+      ],
+      requireImdsv2: true,
+      userDataCausesReplacement: true,
+    });
+    this.lgInstance.addUserData(lgUserData);
+    cdk.Tags.of(this.lgInstance).add("Name", "extenddb-bench-lg");
+    cdk.Tags.of(this.lgInstance).add("role", "lg");
+
+    // Outputs.
+    new cdk.CfnOutput(this, "SutInstanceId", {
+      value: this.sutInstance.instanceId,
+      description: "SUT EC2 instance ID (use with `aws ssm start-session`)",
+    });
+    new cdk.CfnOutput(this, "SutPrivateIp", {
+      value: this.sutInstance.instancePrivateIp,
+      description: "SUT private IP — pass as --target https://<ip>:8000",
+    });
+    new cdk.CfnOutput(this, "LgInstanceId", {
+      value: this.lgInstance.instanceId,
+      description: "LG EC2 instance ID (use with `aws ssm start-session`)",
+    });
+    new cdk.CfnOutput(this, "LgPrivateIp", {
+      value: this.lgInstance.instancePrivateIp,
+    });
+    new cdk.CfnOutput(this, "ExtendDbSha", {
+      value: props.extenddbSha,
+      description: "Pinned ExtendDB commit SHA",
+    });
+    new cdk.CfnOutput(this, "SsmPrefix", {
+      value: SSM_PREFIX,
+      description: "SSM Parameter Store prefix for bench credentials",
+    });
+  }
+}
+
+function renderUserData(filename: string, vars: Record<string, string>): string {
+  const filePath = path.join(__dirname, "user-data", filename);
+  let body = fs.readFileSync(filePath, "utf-8");
+  for (const [key, value] of Object.entries(vars)) {
+    body = body.replaceAll(key, value);
+  }
+  return body;
+}
