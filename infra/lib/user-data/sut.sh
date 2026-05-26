@@ -130,7 +130,9 @@ mkdir -p /etc/extenddb /var/lib/extenddb
 chown root:root /etc/extenddb /var/lib/extenddb
 
 # Bind on the instance's primary private IP so clients on the LG can reach it.
-SUT_PRIVATE_IP="$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)"
+IMDS_TOKEN="$(curl -s -X PUT 'http://169.254.169.254/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')"
+SUT_PRIVATE_IP="$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)"
+echo "SUT private IP: $SUT_PRIVATE_IP"
 
 # `extenddb init` provisions DBs + admin user + TLS cert.
 EXTENDDB_ADMIN_USER="$ADMIN_USER" EXTENDDB_ADMIN_PASSWORD="$ADMIN_PASS" \
@@ -144,13 +146,14 @@ EXTENDDB_ADMIN_USER="$ADMIN_USER" EXTENDDB_ADMIN_PASSWORD="$ADMIN_PASS" \
 
 chmod 600 /etc/extenddb/extenddb.toml
 
-# Replace the bind address inside the rendered config: init only adds the IP
-# as a TLS SAN. We set the actual server bind to 0.0.0.0 so the LG can connect.
-sed -i 's/^# *bind_addr.*/bind_addr = "0.0.0.0"/' /etc/extenddb/extenddb.toml || true
+# Force the server bind to the SUT's private IP so the LG can connect and
+# `extenddb manage` (which reads bind_addr as the connection target) works.
+# init leaves bind_addr empty by default; we set it explicitly here.
+sed -i "s|^bind_addr.*|bind_addr = \"$SUT_PRIVATE_IP\"|" /etc/extenddb/extenddb.toml
 grep -q '^bind_addr' /etc/extenddb/extenddb.toml || \
-  sed -i '/^\[server\]/a bind_addr = "0.0.0.0"' /etc/extenddb/extenddb.toml
+  sed -i "/^\[server\]/a bind_addr = \"$SUT_PRIVATE_IP\"" /etc/extenddb/extenddb.toml
 
-# 7. Systemd unit for ExtendDB.
+# 7. Systemd unit for ExtendDB. extenddb forks into the background; use Type=forking.
 cat > /etc/systemd/system/extenddb.service <<EOF
 [Unit]
 Description=ExtendDB server
@@ -159,13 +162,16 @@ Wants=network-online.target
 Requires=postgresql.service
 
 [Service]
-Type=simple
+Type=forking
+PIDFile=/root/.extenddb/run/extenddb-8000.pid
 ExecStart=/usr/local/bin/extenddb serve --config /etc/extenddb/extenddb.toml
+ExecStop=/usr/local/bin/extenddb stop --config /etc/extenddb/extenddb.toml
 Restart=on-failure
 RestartSec=5
 User=root
 LimitNOFILE=1048576
 Environment=RUST_LOG=info
+Environment=HOME=/root
 
 [Install]
 WantedBy=multi-user.target
