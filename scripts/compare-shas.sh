@@ -145,7 +145,6 @@ mkdir -p $out_remote
 export EXTENDDB_BENCH_SHA=$sha
 bench-run \\
   --workload $WORKLOAD \\
-  --table-name $TABLE \\
   --output $out_remote \\
   --leg-tag $leg \\
   --compare-id $COMPARE_ID \\
