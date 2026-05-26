@@ -82,10 +82,10 @@ aws ssm put-parameter --region "$AWS_REGION" --overwrite \
   --name "${SSM_PREFIX}lg-private-ip" --type String --value "$LG_IP"
 
 # Convenience wrapper that fetches creds from SSM and execs extenddb-bench.
+# TLS verification is disabled (--tls-insecure) since LG/SUT communicate over
+# private IPs in the same SG; SigV4 still authenticates each request.
 cat > /usr/local/bin/bench-run <<EOF
 #!/bin/bash
-# Fetch bench creds from SSM, install the SUT TLS cert into the OS trust store,
-# and exec extenddb-bench.
 set -euo pipefail
 SSM_PREFIX="$SSM_PREFIX"
 AWS_REGION="$AWS_REGION"
@@ -94,15 +94,7 @@ ACCESS_KEY_ID="\$(fetch \${SSM_PREFIX}access-key-id)"
 SECRET_ACCESS_KEY="\$(fetch \${SSM_PREFIX}secret-access-key)"
 SUT_IP="\$(fetch \${SSM_PREFIX}sut-private-ip)"
 EXTENDDB_SHA="\$(fetch \${SSM_PREFIX}extenddb-sha)"
-TLS_CERT_B64="\$(fetch \${SSM_PREFIX}tls-cert-b64)"
 TABLE_NAME="\$(fetch \${SSM_PREFIX}table-name)"
-
-# Install the SUT cert into the AL2023 system trust store. update-ca-trust
-# regenerates /etc/pki/ca-trust/extracted/, which rustls-native-certs reads.
-mkdir -p /etc/pki/ca-trust/source/anchors
-echo "\$TLS_CERT_B64" | base64 -d > /etc/pki/ca-trust/source/anchors/extenddb-sut.pem
-chmod 644 /etc/pki/ca-trust/source/anchors/extenddb-sut.pem
-update-ca-trust extract
 
 export AWS_ACCESS_KEY_ID="\$ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="\$SECRET_ACCESS_KEY"
@@ -113,6 +105,7 @@ exec /usr/local/bin/extenddb-bench run \\
   --target "https://\$SUT_IP:8000" \\
   --table-name "\$TABLE_NAME" \\
   --aws-region "\$AWS_REGION" \\
+  --tls-insecure \\
   "\$@"
 EOF
 chmod 755 /usr/local/bin/bench-run
