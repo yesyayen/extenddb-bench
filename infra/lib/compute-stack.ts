@@ -145,7 +145,7 @@ export class ComputeStack extends cdk.Stack {
       userDataCausesReplacement: true,
     });
     const sutDataVolume = new ec2.Volume(this, "SutDataVolume", {
-      availabilityZone: this.sutInstance.instanceAvailabilityZone,
+      availabilityZone: cdk.Fn.select(0, props.vpc.availabilityZones),
       size: cdk.Size.gibibytes(1024),
       volumeType: ec2.EbsDeviceVolumeType.GP3,
       iops: 16000,
@@ -153,7 +153,6 @@ export class ComputeStack extends cdk.Stack {
       encrypted: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
-    sutDataVolume.grantAttachVolume(role, [this.sutInstance]);
     new ec2.CfnVolumeAttachment(this, "SutDataAttach", {
       instanceId: this.sutInstance.instanceId,
       volumeId: sutDataVolume.volumeId,
@@ -225,5 +224,8 @@ function renderUserData(filename: string, vars: Record<string, string>): string 
   for (const [key, value] of Object.entries(vars)) {
     body = body.replaceAll(key, value);
   }
-  return body;
+  // CDK's `UserData.forLinux()` prepends `#!/bin/bash`. Strip a leading
+  // shebang from our script body so the rendered cloud-init script has
+  // exactly one shebang line.
+  return body.replace(/^#![^\n]*\n/, "");
 }

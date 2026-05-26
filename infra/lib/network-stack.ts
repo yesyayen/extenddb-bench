@@ -49,12 +49,12 @@ export class NetworkStack extends cdk.Stack {
     this.benchSecurityGroup.addIngressRule(
       this.benchSecurityGroup,
       ec2.Port.tcp(8000),
-      "ExtendDB HTTPS dataplane (LG -> SUT, intra-SG only)",
+      "ExtendDB HTTPS dataplane (LG to SUT, intra-SG)",
     );
     this.benchSecurityGroup.addIngressRule(
       this.benchSecurityGroup,
       ec2.Port.tcp(9090),
-      "extenddb-bench Prometheus exposition (intra-SG only)",
+      "extenddb-bench Prometheus exposition (intra-SG)",
     );
 
     this.resultsBucket = new s3.Bucket(this, "ResultsBucket", {
@@ -62,7 +62,8 @@ export class NetworkStack extends cdk.Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       versioned: false,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
       lifecycleRules: [
         {
           id: "expire-old-runs",

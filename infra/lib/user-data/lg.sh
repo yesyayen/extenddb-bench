@@ -13,6 +13,7 @@
 #   __AWS_REGION__       AWS region (us-east-1)
 
 set -euxo pipefail
+export HOME=/root
 
 BENCH_REPO="__BENCH_REPO__"
 BENCH_REF="__BENCH_REF__"
@@ -29,8 +30,8 @@ mark_status() {
 mark_status "starting"
 
 # Base toolchain.
-dnf install -y --quiet \
-  git tar gzip xz jq curl gcc gcc-c++ make pkgconfig openssl-devel \
+dnf install -y --quiet --allowerasing \
+  git tar xz jq gcc gcc-c++ make pkgconfig openssl-devel \
   python3 python3-pip
 
 # Rust toolchain.

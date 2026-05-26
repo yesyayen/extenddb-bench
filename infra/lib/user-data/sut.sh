@@ -22,6 +22,7 @@
 #   9. creates the `bench` table
 
 set -euxo pipefail
+export HOME=/root
 
 EXTENDDB_SHA="__EXTENDDB_SHA__"
 SSM_PREFIX="__SSM_PREFIX__"
@@ -38,8 +39,8 @@ mark_status() {
 mark_status "starting"
 
 # 1. Base packages.
-dnf install -y --quiet \
-  git tar gzip xz jq curl gcc gcc-c++ make pkgconfig openssl-devel \
+dnf install -y --quiet --allowerasing \
+  git tar xz jq gcc gcc-c++ make pkgconfig openssl-devel \
   python3 python3-pip \
   postgresql15 postgresql15-server postgresql15-contrib
 
