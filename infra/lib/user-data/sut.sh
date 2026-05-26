@@ -283,16 +283,16 @@ systemctl enable --now node_exporter
 
 # 12. postgres_exporter for Postgres metrics.
 # Create a low-privilege monitoring role with pg_monitor.
-PG_EXPORTER_PASS="$(openssl rand -hex 16)"
+POSTGRES_EXPORTER_PASS="$(openssl rand -hex 16)"
 sudo -u postgres /usr/bin/psql <<SQL
 DO \$\$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pg_exporter') THEN
-    CREATE ROLE pg_exporter LOGIN PASSWORD '$PG_EXPORTER_PASS';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres_exporter') THEN
+    CREATE ROLE postgres_exporter LOGIN PASSWORD '$POSTGRES_EXPORTER_PASS';
   ELSE
-    ALTER ROLE pg_exporter WITH LOGIN PASSWORD '$PG_EXPORTER_PASS';
+    ALTER ROLE postgres_exporter WITH LOGIN PASSWORD '$POSTGRES_EXPORTER_PASS';
   END IF;
 END \$\$;
-GRANT pg_monitor TO pg_exporter;
+GRANT pg_monitor TO postgres_exporter;
 -- pg_stat_statements requires GRANT on the extension's view.
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 SQL
@@ -327,7 +327,7 @@ fi
 useradd -r -s /sbin/nologin postgres_exporter 2>/dev/null || true
 mkdir -p /etc/postgres_exporter
 cat > /etc/postgres_exporter/env <<EOF
-DATA_SOURCE_NAME=postgresql://pg_exporter:$PG_EXPORTER_PASS@127.0.0.1:5432/postgres?sslmode=disable
+DATA_SOURCE_NAME=postgresql://postgres_exporter:$POSTGRES_EXPORTER_PASS@127.0.0.1:5432/postgres?sslmode=disable
 EOF
 chmod 600 /etc/postgres_exporter/env
 chown postgres_exporter:postgres_exporter /etc/postgres_exporter/env

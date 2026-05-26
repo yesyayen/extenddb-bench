@@ -2,82 +2,83 @@
 
 Performance testing harness for [ExtendDB](https://github.com/ExtendDB/extenddb).
 
-Three EC2 instances in one VPC: a load generator, a SUT, and a monitor.
-ExtendDB and the load gen are built from source on each deploy. The monitor
-runs Prometheus + Grafana with three pre-provisioned dashboards.
+Three Amazon Elastic Compute Cloud (EC2) instances in one Virtual Private Cloud (VPC):
 
 ```text
                 ┌─── VPC ──────────────────────────────────────────┐
                 │                                                  │
    operator     │   LG (c7g.8xlarge)         SUT (c7g.4xlarge)     │
-   laptop       │   ─ extenddb-bench         ─ extenddb            │
-       │        │   ─ :9090 prom             ─ postgres 15         │
-       │ SSM    │   ─ :9100 node_exporter    ─ :9100 node_exporter │
-       │        │                            ─ :9187 pg_exporter   │
+   laptop       │   - extenddb-bench         - extenddb            │
+       │        │   - :9090 prom             - postgres 15         │
+       │ SSM    │   - :9100 node_exporter    - :9100 node_exporter │
+       │        │                            - :9187 pg_exporter   │
        └────────┤                                                  │
                 │                                                  │
                 │   Monitor (t4g.medium, 50 GB EBS RETAIN)         │
-                │   ─ Prometheus :9090                             │
-                │   ─ Grafana    :3000                             │
+                │   - Prometheus :9090                             │
+                │   - Grafana    :3000                             │
                 └──────────────────────────────────────────────────┘
 ```
 
+LG is the Load Generator. SUT is the System Under Test. Monitor runs Prometheus and Grafana with three pre-provisioned dashboards. Design and rationale live in [`docs/design-v0.1.md`](docs/design-v0.1.md), [`docs/design-v0.3.md`](docs/design-v0.3.md), and [`docs/v0.15-status.md`](docs/v0.15-status.md).
+
+## Contents
+
+- [Status](#status)
+- [Prerequisites](#prerequisites)
+- [Repo layout](#repo-layout)
+- [Scenarios](#scenarios)
+  - [Deploy a stack](#deploy-a-stack)
+  - [Open Grafana](#open-grafana)
+  - [Get a shell on an instance](#get-a-shell-on-an-instance)
+  - [Run a smoke sweep](#run-a-smoke-sweep)
+  - [Run a real sweep](#run-a-real-sweep)
+  - [Pull results to your laptop](#pull-results-to-your-laptop)
+  - [Tail bootstrap and bench logs](#tail-bootstrap-and-bench-logs)
+  - [Compare two SHAs (A/B)](#compare-two-shas-ab)
+  - [Tear it all down](#tear-it-all-down)
+- [License](#license)
+
 ## Status
 
-**v0.15** — instrumentation. Three live dashboards: bench, hosts, storage.
-Instances stay alive after the sweep until the operator runs `cdk destroy`.
-See [`docs/v0.15-status.md`](docs/v0.15-status.md).
-
-**v0.1** — baseline POC. PutItem 1 KB, RPS sweep, HDR histograms, JSON +
-markdown reports, S3 sync. See [`docs/v0.1-status.md`](docs/v0.1-status.md)
-and [`docs/design-v0.1.md`](docs/design-v0.1.md).
-
-## Repo layout
-
-```text
-extenddb-bench/
-├── infra/                    CDK TypeScript
-│   ├── bin/stack.ts          Network + Monitor + Compute stacks
-│   └── lib/
-│       ├── network-stack.ts  VPC, NAT, S3 results, bench SG
-│       ├── monitor-stack.ts  Prometheus + Grafana on t4g.medium
-│       ├── compute-stack.ts  LG + SUT on c7g.{8,4}xlarge
-│       ├── pr-resolver.ts    `--branch+--commit` or `--pr` -> SHA
-│       ├── user-data/
-│       │   ├── monitor.sh
-│       │   ├── lg.sh
-│       │   └── sut.sh
-│       └── dashboards/       Three Grafana JSON dashboards
-├── loadgen/                  Rust load generator (open-loop, HDR)
-├── docs/
-│   ├── design-v0.1.md
-│   ├── v0.1-status.md
-│   └── v0.15-status.md
-└── scripts/
-    ├── cheatsheet.sh         Print all operator commands for a live stack
-    ├── run-via-ssm.sh        Pick LG/SUT and start an SSM session
-    └── pull-results.sh       aws s3 sync for a run id
-```
+- **v0.15** instrumentation. Three live dashboards: bench, hosts, storage. Instances stay alive after the sweep until the operator runs `cdk destroy`. See [`docs/v0.15-status.md`](docs/v0.15-status.md).
+- **v0.3** A/B SHA comparisons. See [`docs/design-v0.3.md`](docs/design-v0.3.md).
+- **v0.1** baseline POC. PutItem 1 KiB, RPS sweep, HDR histograms, JSON and markdown reports. See [`docs/design-v0.1.md`](docs/design-v0.1.md).
 
 ## Prerequisites
 
 - AWS profile `asomasun-admin` with admin in `us-east-1`
-- Node 18+ (for CDK)
+- Node.js 18+ (for AWS Cloud Development Kit (CDK))
 - `gh` CLI (for `--pr <id>` resolution)
-- AWS Session Manager plugin:
+- AWS Systems Manager (SSM) Session Manager plugin:
 
 ```bash
-# AL2 / RHEL x86_64 (e.g. dev-dsk):
+# Amazon Linux 2 / RHEL x86_64 (e.g. dev-dsk):
 sudo yum install -y https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm
 
-# AL2 / RHEL ARM64:
+# Amazon Linux 2 / RHEL ARM64:
 sudo yum install -y https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_arm64/session-manager-plugin.rpm
 
 # macOS:
 brew install --cask session-manager-plugin
 ```
 
-## Deploy
+## Repo layout
+
+```text
+extenddb-bench/
+├── infra/      AWS CDK TypeScript (network, monitor, compute stacks; user-data; dashboards)
+├── loadgen/    Rust load generator (open-loop, HDR histograms)
+├── docs/       Design docs and per-version status notes
+├── scripts/    cheatsheet.sh, run-via-ssm.sh, pull-results.sh, swap-sha.sh, compare-shas.sh
+└── results/    Local sync target for finished runs
+```
+
+Stack-by-stack breakdown is in [`docs/design-v0.1.md`](docs/design-v0.1.md#repository-structure).
+
+## Scenarios
+
+### Deploy a stack
 
 Pin an ExtendDB ref one of two ways:
 
@@ -85,171 +86,109 @@ Pin an ExtendDB ref one of two ways:
 cd infra
 npm install
 
-# Option A: branch + 40-char commit SHA
+# A) branch + 40-char commit Secure Hash Algorithm (SHA)
 AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PROFILE=asomasun-admin \
   npx cdk deploy --all --require-approval=never \
   -c extenddbBranch=main -c extenddbCommit=<40-char-sha>
 
-# Option B: PR id (resolves to head SHA via gh CLI at synth time)
+# B) Pull Request id (resolves to head SHA via gh CLI at synth time)
 AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PROFILE=asomasun-admin \
   npx cdk deploy --all --require-approval=never -c extenddbPr=<pr-id>
 ```
 
-First deploy takes ~13 min (3 min CFN + ~10 min for ExtendDB cargo build on the SUT).
-Monitor and LG finish faster (~3 min).
+First deploy is ~13 min (3 min CloudFormation, ~10 min for the cargo build on the SUT). Bootstrap status is in `/var/run/extenddb-bench-bootstrap-status` on each instance: `starting`, `postgres-ready`, `extenddb-built`, `ready`.
 
-Bootstrap status is in `/var/run/extenddb-bench-bootstrap-status` on each instance
-(values: `starting`, `postgres-ready`, `extenddb-built`, `ready`).
-
-## Operator cheatsheet
-
-After deploy, run:
+After deploy, get every command pre-filled with the live ids and IPs:
 
 ```bash
-AWS_PROFILE=asomasun-admin AWS_REGION=us-east-1 \
-  ./scripts/cheatsheet.sh
+AWS_PROFILE=asomasun-admin AWS_REGION=us-east-1 ./scripts/cheatsheet.sh
 ```
 
-It prints instance ids, IPs, the Grafana password, and every command below
-filled in for the running stack.
-
 ### Open Grafana
-
-Port-forward to the monitor (uses Session Manager):
 
 ```bash
 aws ssm start-session --profile asomasun-admin --region us-east-1 \
   --target <MONITOR_INSTANCE_ID> \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["3000"],"localPortNumber":["3080"]}'
-```
 
-Open http://localhost:3080. User `admin`, password from:
-
-```bash
+# admin password:
 aws ssm get-parameter --profile asomasun-admin --region us-east-1 \
   --with-decryption --name /extenddb-bench/grafana-admin-password \
   --query Parameter.Value --output text
 ```
 
-Three dashboards:
-- **extenddb-bench live** — target/achieved RPS, p50/p90/p99/p999 latency, in-flight, errors. Empty when no sweep is running.
-- **extenddb-bench hosts** — node_exporter for both LG and SUT (CPU, mem, network, disk IO/IOPS).
-- **extenddb-bench storage (postgres)** — connections, TPS, tuples, block I/O, top queries by mean time.
-
-To also see the raw Prometheus targets list:
-
-```bash
-aws ssm start-session --profile asomasun-admin --region us-east-1 \
-  --target <MONITOR_INSTANCE_ID> \
-  --document-name AWS-StartPortForwardingSession \
-  --parameters '{"portNumber":["9090"],"localPortNumber":["9091"]}'
-# then http://localhost:9091/targets
-```
+Open <http://localhost:3080>, user `admin`. Three dashboards: `extenddb-bench live`, `extenddb-bench hosts`, `extenddb-bench storage (postgres)`. Panel inventory is in [`docs/v0.15-status.md`](docs/v0.15-status.md#dashboards).
 
 ### Get a shell on an instance
 
 ```bash
-aws ssm start-session --profile asomasun-admin --region us-east-1 --target <INSTANCE_ID>
-```
-
-Or via the helper:
-
-```bash
-./scripts/run-via-ssm.sh lg       # LG
-./scripts/run-via-ssm.sh sut      # SUT
+./scripts/run-via-ssm.sh lg       # Load Generator
+./scripts/run-via-ssm.sh sut      # System Under Test
 ./scripts/run-via-ssm.sh monitor  # Monitor
 ```
 
 You land as `ssm-user`. Use `sudo -i` for root.
 
-### Run a sweep
+### Run a smoke sweep
 
-On the LG (after `aws ssm start-session ... --target <LG_INSTANCE_ID>`):
+On the LG, ~30 s. Proves the bench dashboard lights up:
 
 ```bash
-# smoke (~30 s) — prove the bench dashboard lights up
 bench-run --rps-sweep 500 --warmup 2s --duration 15s --cooldown 1s --iterations 1
+```
 
-# v0.1 acceptance shape (~7 min)
+### Run a real sweep
+
+On the LG, ~7 min, v0.1 acceptance shape:
+
+```bash
 bench-run --rps-sweep 1000,3000,5000,10000 \
   --warmup 5s --duration 30s --cooldown 2s \
   --iterations 3 --connections 256 \
   --output /tmp/bench-$(date -u +%Y%m%dT%H%M%S)
 ```
 
-`bench-run` is a wrapper installed at `/usr/local/bin/bench-run` that pulls
-bench credentials from SSM Parameter Store and execs the load generator with
-`--tls-insecure` (the LG-to-SUT hop is intra-SG with self-signed TLS; SigV4
-still authenticates the request). All `extenddb-bench run` flags are forwarded.
+`bench-run` is a wrapper at `/usr/local/bin/bench-run` that pulls bench credentials from SSM Parameter Store and execs the load generator with `--tls-insecure`. Signature Version 4 (SigV4) still authenticates the request. All `extenddb-bench run` flags are forwarded.
 
-While running, watch http://localhost:3080.
+While running, watch <http://localhost:3080>.
 
 ### Pull results to your laptop
 
-After a run, results are at `/tmp/bench-<ts>/` on the LG. Copy them to S3
-then `aws s3 sync` to the dev-dsk:
+After a run, results are at `/tmp/bench-<ts>/` on the LG. Push to S3, then sync down:
 
 ```bash
 # on LG:
 RUN_DIR=$(ls -td /tmp/bench-* | head -1)
 RUN_ID=$(basename "$RUN_DIR")
-aws s3 sync "$RUN_DIR/" "s3://extenddb-bench-results-$(aws sts get-caller-identity --query Account --output text)/runs/$RUN_ID/"
+aws s3 sync "$RUN_DIR/" \
+  "s3://extenddb-bench-results-$(aws sts get-caller-identity --query Account --output text)/runs/$RUN_ID/"
 exit
 
 # on dev-dsk:
 ./scripts/pull-results.sh "$RUN_ID"
 ```
 
-`pull-results.sh` syncs to `./results/<run-id>/` and `less`'s the `summary.md`.
+`pull-results.sh` syncs to `./results/<run-id>/` and pages the `summary.md`.
 
-### Tail bench logs
+### Tail bootstrap and bench logs
 
 ```bash
-# from your laptop, using SSM run-command (one-shot):
+# one-shot, from your laptop:
 aws ssm send-command --profile asomasun-admin --region us-east-1 \
   --instance-ids <LG_INSTANCE_ID> \
   --document-name AWS-RunShellScript \
   --parameters 'commands=tail -50 /var/log/extenddb-bench-bootstrap.log'
 
-# or get a shell and tail interactively:
-aws ssm start-session --profile asomasun-admin --region us-east-1 --target <LG_INSTANCE_ID>
-# then on LG: tail -f /var/log/extenddb-bench-bootstrap.log
+# interactive:
+./scripts/run-via-ssm.sh lg
+# then on LG:
+tail -f /var/log/extenddb-bench-bootstrap.log
 ```
 
-### Teardown
+### Compare two SHAs (A/B)
 
-```bash
-cd infra
-
-# leave monitor + dashboard alive (recommended — see your run's metrics later):
-AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PROFILE=asomasun-admin \
-  npx cdk destroy ExtendDbBenchCompute --force \
-  -c extenddbBranch=main -c extenddbCommit=<sha>
-
-# nuke everything (Monitor's data EBS volume is RETAINed; manual delete to recover space):
-AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PROFILE=asomasun-admin \
-  npx cdk destroy --all --force \
-  -c extenddbBranch=main -c extenddbCommit=<sha>
-```
-
-## Cost
-
-| component | hourly | notes |
-|---|---|---|
-| Compute (LG + SUT) | ~$1.99 | c7g.8xlarge + c7g.4xlarge + 1 TB gp3 16k IOPS |
-| Monitor | ~$0.04 | t4g.medium + 50 GB gp3 |
-| NAT + S3 | ~$0.05 | trivial |
-| **All-on** | **~$2.10/hr** | |
-
-A `deploy → sweep → destroy` cycle (~30 min) is ~$1. Leaving the monitor
-alive for review is ~$1/day.
-
-## Comparing two SHAs (v0.3)
-
-The `compare-shas.sh` script does a same-SUT, sequential head-to-head
-run of two ExtendDB SHAs and emits a single `compare-summary.md` with
-bootstrap-CI-backed verdicts per step.
+Same SUT, sequential head-to-head run of two ExtendDB SHAs. Emits a single `compare-summary.md` with bootstrap-Confidence-Interval-backed verdicts per step.
 
 ```bash
 # Workload diversity: read, update, mixed.
@@ -258,27 +197,32 @@ scripts/compare-shas.sh main 140a1e5e updateitem-1kb
 scripts/compare-shas.sh main 140a1e5e mixed-rw \
     --rps-sweep-file loadgen/sweeps/mixed.csv
 
-# Critical guard test: same SHA on both sides MUST be `within_noise`
-# on every step. If it isn't, the stat test or the table-reset is wrong.
+# Guard test: same SHA on both sides MUST be `within_noise` on every step.
 scripts/compare-shas.sh main main putitem-1kb
 ```
 
-Flow per leg: `swap-sha.sh <sha>` (cargo build + `/health` poll on the SUT)
-→ drop and recreate the bench table → ensure pre-seed (S3 stamp keyed by SHA)
-→ sweep → S3 sync → on the operator laptop, `extenddb-bench report-compare`
-fuses both legs into one dir.
+Per leg: `swap-sha.sh <sha>` (cargo build + `/health` poll) → drop-and-recreate the bench table → ensure pre-seed (S3 stamp keyed by SHA) → sweep → S3 sync. The operator laptop fuses both legs with `extenddb-bench report-compare`.
 
-Verdict labels:
-- `regression` (exit 1)
-- `within_noise`
-- `improvement`
+Verdict labels: `regression` (exit 1), `within_noise`, `improvement`. The per-step verdict is the worse of `achieved_rps` and `p99_us`; the headline is the worst step. Full method in [`docs/design-v0.3.md`](docs/design-v0.3.md).
 
-The per-step verdict is the worse of `achieved_rps` and `p99_us`; the
-headline is the worst step.
+The `bench` and `extenddb-app` dashboards render annotation markers (`leg=baseline`, `leg=candidate`) at each leg boundary.
 
-The `bench` and `extenddb-app` dashboards render an annotation marker
-(`leg=baseline` / `leg=candidate`) at each leg boundary so you can read
-the time-series with the verdicts.
+### Tear it all down
+
+```bash
+cd infra
+
+# Keep monitor + dashboard alive (recommended; review the run later):
+AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PROFILE=asomasun-admin \
+  npx cdk destroy ExtendDbBenchCompute --force \
+  -c extenddbBranch=main -c extenddbCommit=<sha>
+
+# Nuke everything. The Monitor data Elastic Block Store (EBS) volume is RETAINed;
+# delete it manually to recover space.
+AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PROFILE=asomasun-admin \
+  npx cdk destroy --all --force \
+  -c extenddbBranch=main -c extenddbCommit=<sha>
+```
 
 ## License
 
