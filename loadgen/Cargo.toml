@@ -23,6 +23,16 @@ async-trait = "0.1"
 aws-config = { version = "1.5", features = ["behavior-version-latest"] }
 aws-credential-types = "1.2"
 aws-sdk-dynamodb = "1.55"
+# Custom HTTP client for self-signed TLS (skip-verify or custom CA bundle).
+# The AWS SDK 1.x default builder for hyper is gated on hyper 0.14.
+aws-smithy-runtime = { version = "1.7", features = ["connector-hyper-0-14-x"] }
+hyper = { version = "0.14", features = ["client"] }
+hyper-rustls = { version = "0.25", default-features = false, features = ["http1", "http2", "native-tokio", "rustls-native-certs"] }
+rustls = { version = "0.22", default-features = false, features = ["ring", "tls12"] }
+rustls-pemfile = "2.0"
+rustls-pki-types = "1"
+rustls-native-certs = "0.7"
+webpki-roots = "0.26"
 
 # Open-loop rate limit
 governor = "0.6"

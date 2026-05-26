@@ -48,6 +48,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
     let client_cfg = ClientConfig {
         endpoint_url: args.target.clone(),
         region: args.aws_region.clone(),
+        tls_ca_bundle: args.tls_ca_bundle.clone(),
         tls_insecure: args.tls_insecure,
     };
     let client = client::build(&client_cfg).await?;
