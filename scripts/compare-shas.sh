@@ -67,10 +67,16 @@ echo "LG=$LG_ID  SUT=$SUT_ID  SUT_IP=$SUT_IP  table=$TABLE  bucket=$RESULTS_BUCK
 # Issue a remote command on the LG and stream stdout/stderr.
 ssm_run_lg() {
   local cmd="$1"
+  # Base64-encode the multi-line script so it survives the JSON envelope as a
+  # single line. Decode and run via `bash -c "$(echo ... | base64 -d)"` on the
+  # remote.
+  local b64
+  b64="$(printf '%s' "$cmd" | base64 -w0)"
+  local wrapper="bash -c \"\$(echo $b64 | base64 -d)\""
   local cmd_id status
   cmd_id="$(aws ssm send-command --profile "$PROFILE" --region "$REGION" \
     --instance-ids "$LG_ID" --document-name AWS-RunShellScript \
-    --parameters "commands=[$(printf '%s' "$cmd" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')]" \
+    --parameters "{\"commands\":[\"${wrapper}\"]}" \
     --query 'Command.CommandId' --output text)"
   echo "ssm-cmd: $cmd_id"
   local deadline=$((SECONDS + 3600))
@@ -86,6 +92,8 @@ ssm_run_lg() {
         echo "lg cmd $status:" >&2
         aws ssm get-command-invocation --profile "$PROFILE" --region "$REGION" \
           --command-id "$cmd_id" --instance-id "$LG_ID" --query 'StandardErrorContent' --output text >&2
+        aws ssm get-command-invocation --profile "$PROFILE" --region "$REGION" \
+          --command-id "$cmd_id" --instance-id "$LG_ID" --query 'StandardOutputContent' --output text >&2
         return 1;;
     esac
     printf "."; sleep 5
