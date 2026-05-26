@@ -208,8 +208,16 @@ pub async fn run(args: PreseedArgs) -> Result<Outcome> {
 }
 
 async fn build_s3_client(region: &str) -> Result<S3Client> {
+    // The bench-run wrapper exports AWS_ACCESS_KEY_ID/SECRET pointing at the
+    // bench DDB user (which has dynamodb:* but no S3 access). For the S3
+    // stamp file we want the EC2 instance role (which the bench SG IAM grants
+    // for `extenddb-bench-results-*` via grantReadWrite). Source credentials
+    // explicitly from IMDS so env vars don't shadow the instance role.
+    use aws_config::imds::credentials::ImdsCredentialsProvider;
+    let imds = ImdsCredentialsProvider::builder().build();
     let cfg = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(aws_config::Region::new(region.to_owned()))
+        .credentials_provider(imds)
         .load()
         .await;
     Ok(S3Client::new(&cfg))
