@@ -64,7 +64,7 @@ jq -n \
   --arg cl  "$([[ "$CLEAR" == true ]] && echo true || echo "")" \
   --arg lab "$LABEL" \
   '{InstanceIds:[$sut], DocumentName:"extenddb-bench-apply-config-patch",
-    Parameters:{patch_b64:[$b64], clear:[$cl], label:[$lab]}}' > "$PARAMS"
+    Parameters:{patchB64:[$b64], clear:[$cl], label:[$lab]}}' > "$PARAMS"
 
 CMD_ID="$(aws ssm send-command --profile "$PROFILE" --region "$REGION" \
   --cli-input-json "file://$PARAMS" --query 'Command.CommandId' --output text)"

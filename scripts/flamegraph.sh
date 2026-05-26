@@ -153,7 +153,7 @@ jq -n \
   --arg title "$TITLE" \
   --arg sub "$SUBTITLE" \
   '{InstanceIds:[$sut], DocumentName:"extenddb-bench-flamegraph",
-    Parameters:{duration_seconds:[$dur], freq_hz:[$freq], s3_uri:[$s3],
+    Parameters:{durationSeconds:[$dur], freqHz:[$freq], s3Uri:[$s3],
                 title:[$title], subtitle:[$sub]}}' > "$FG_PARAMS"
 FG_CMD_ID="$(aws ssm send-command --profile "$PROFILE" --region "$REGION" \
   --cli-input-json "file://$FG_PARAMS" --query 'Command.CommandId' --output text)"

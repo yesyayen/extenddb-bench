@@ -282,19 +282,19 @@ export class ComputeStack extends cdk.Stack {
         description:
           "extenddb-bench: capture a perf flamegraph of the running ExtendDB process and upload it to S3.",
         parameters: {
-          duration_seconds: {
+          durationSeconds: {
             type: "String",
             default: "30",
             allowedPattern: "^[1-9][0-9]{0,2}$",
             description: "perf record duration in seconds (1-999).",
           },
-          freq_hz: {
+          freqHz: {
             type: "String",
             default: "99",
             allowedPattern: "^[1-9][0-9]{0,3}$",
             description: "perf sampling frequency in Hz (1-9999, 99 typical).",
           },
-          s3_uri: {
+          s3Uri: {
             type: "String",
             allowedPattern: "^s3://[a-z0-9.\\-]+(/.*)?$",
             description: "Destination S3 URI prefix; flame.svg + perf.folded land under it.",
@@ -319,9 +319,9 @@ export class ComputeStack extends cdk.Stack {
                 "#!/bin/bash",
                 "set -euxo pipefail",
                 "export HOME=/root PATH=/root/.cargo/bin:$PATH",
-                "DURATION={{ duration_seconds }}",
-                "FREQ={{ freq_hz }}",
-                "S3_URI={{ s3_uri }}",
+                "DURATION={{ durationSeconds }}",
+                "FREQ={{ freqHz }}",
+                "S3_URI={{ s3Uri }}",
                 "TITLE='{{ title }}'",
                 "SUBTITLE='{{ subtitle }}'",
                 "PID=$(pgrep -f '/usr/local/bin/extenddb serve' | head -n1)",
@@ -374,7 +374,7 @@ export class ComputeStack extends cdk.Stack {
         description:
           "extenddb-bench: append a TOML fragment to extenddb.toml inside a managed block, restart, health-check.",
         parameters: {
-          patch_b64: {
+          patchB64: {
             type: "String",
             default: "",
             description: "Base64-encoded TOML fragment; empty means no append.",
@@ -383,7 +383,7 @@ export class ComputeStack extends cdk.Stack {
             type: "String",
             default: "",
             allowedPattern: "^(|true|false)$",
-            description: "If 'true', strip the existing managed block before applying patch_b64.",
+            description: "If 'true', strip the existing managed block before applying patchB64.",
           },
           label: {
             type: "String",
@@ -399,7 +399,7 @@ export class ComputeStack extends cdk.Stack {
               runCommand: [
                 "#!/bin/bash",
                 "set -euxo pipefail",
-                "PATCH_B64='{{ patch_b64 }}'",
+                "PATCH_B64='{{ patchB64 }}'",
                 "CLEAR='{{ clear }}'",
                 "LABEL='{{ label }}'",
                 "CFG=/etc/extenddb/extenddb.toml",
