@@ -179,10 +179,13 @@ if $HAVE_DIFF; then
     for ((j=0; j<${#LABELS[@]}; j++)); do
       [[ $i -eq $j ]] && continue
       a="${LABELS[$i]}"; b="${LABELS[$j]}"
-      ap="$LOCAL_OUT/$a/perf.folded"
-      bp="$LOCAL_OUT/$b/perf.folded"
+      # Per-leg artifacts live under results/flamegraphs/<run-id>/<leg>/,
+      # not under the compare-flamegraphs output dir. flamegraph.sh writes
+      # there directly; the orchestrator copies refs into its own report.
+      ap="${EXTENDDB_BENCH_RESULTS_DIR:-$REPO_ROOT/results}/flamegraphs/$RUN_ID/$a/perf.folded"
+      bp="${EXTENDDB_BENCH_RESULTS_DIR:-$REPO_ROOT/results}/flamegraphs/$RUN_ID/$b/perf.folded"
       if [[ ! -f "$ap" || ! -f "$bp" ]]; then
-        echo "skip diff $a -> $b (missing folded stacks)"; continue
+        echo "skip diff $a -> $b (missing folded stacks at $ap or $bp)"; continue
       fi
       out="$LOCAL_OUT/diffs/${a}-vs-${b}.svg"
       echo "[diff] $a -> $b  =>  $(basename "$out")"
@@ -220,10 +223,12 @@ REPORT="$LOCAL_OUT/report.md"
   echo "## Per-leg flamegraphs"
   echo
   for label in "${LABELS[@]}"; do
-    if [[ -f "$LOCAL_OUT/$label/flame.svg" ]]; then
+    fg_dir="${EXTENDDB_BENCH_RESULTS_DIR:-$REPO_ROOT/results}/flamegraphs/$RUN_ID/$label"
+    if [[ -f "$fg_dir/flame.svg" ]]; then
+      rel="../../flamegraphs/$RUN_ID/$label/flame.svg"
       echo "### $label"
       echo
-      echo "[$label/flame.svg]($label/flame.svg)"
+      echo "[$label/flame.svg]($rel)"
       echo
     fi
   done
