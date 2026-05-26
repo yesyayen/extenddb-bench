@@ -68,6 +68,11 @@ export class NetworkStack extends cdk.Stack {
     );
     this.benchSecurityGroup.addIngressRule(
       this.benchSecurityGroup,
+      ec2.Port.tcp(9101),
+      "extenddb-app metrics shim (intra-SG)",
+    );
+    this.benchSecurityGroup.addIngressRule(
+      this.benchSecurityGroup,
       ec2.Port.tcp(3000),
       "Grafana UI (intra-SG; operator reaches via SSM port-forward)",
     );
