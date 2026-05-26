@@ -1,25 +1,7 @@
 #!/bin/bash
-# extenddb-bench SUT bootstrap.
-#
-# Runs once at instance launch via cloud-init user-data. Writes structured logs
-# to /var/log/extenddb-bench-bootstrap.log (also tee'd to console).
-#
-# Required environment placeholders (substituted by CDK at synth time):
-#   __EXTENDDB_SHA__     40-char commit SHA (locked at synth time)
-#   __SSM_PREFIX__       SSM Parameter Store key prefix (e.g. /extenddb-bench/)
-#   __AWS_REGION__       AWS region (us-east-1)
-#   __DATA_DEVICE__      Block device for the data EBS volume (/dev/nvme1n1)
-#
-# This script:
-#   1. installs base toolchain (rust, postgres15, git, jq, python)
-#   2. mounts the data EBS volume at /data
-#   3. starts postgres15, creates an admin role
-#   4. clones + builds ExtendDB at the pinned SHA
-#   5. runs `extenddb init` (creates DBs, admin user, TLS cert)
-#   6. starts ExtendDB via systemd
-#   7. provisions a bench IAM user + access key via the management API
-#   8. writes credentials to SSM Parameter Store (encrypted)
-#   9. creates the `bench` table
+# extenddb-bench SUT bootstrap. Runs once at launch; logs to
+# /var/log/extenddb-bench-bootstrap.log. Placeholders: __EXTENDDB_SHA__,
+# __SSM_PREFIX__, __AWS_REGION__, __DATA_DEVICE__ (substituted at synth).
 
 set -euxo pipefail
 export HOME=/root
@@ -47,8 +29,7 @@ dnf install -y --quiet --allowerasing \
   postgresql15 postgresql15-server postgresql15-contrib
 dnf install -y --quiet perf || dnf install -y --quiet kernel-tools || true
 
-# 1a. Profiler-friendly sysctls so unprivileged or hardened kernels don't
-# truncate stacks. We run perf as root so these are belt-and-suspenders.
+# Profiler-friendly sysctls (we run perf as root so this is belt-and-suspenders).
 cat > /etc/sysctl.d/99-bench-perf.conf <<'SYSCTL'
 kernel.perf_event_paranoid = 1
 kernel.kptr_restrict = 0
@@ -129,24 +110,16 @@ git fetch --quiet origin "$EXTENDDB_SHA" || git fetch --quiet origin
 git checkout --quiet "$EXTENDDB_SHA"
 git rev-parse HEAD > /etc/extenddb-version
 
-# Build into a stable target dir on the data volume so subsequent rebuilds
-# are incremental even if the root volume is small.
-#
-# RUSTFLAGS='-C force-frame-pointers=yes': preserve frame pointers across the
-# full dependency tree so `perf record --call-graph fp` produces unbroken
-# stacks. Required for usable flamegraphs on aarch64 release builds (rustc
-# omits FPs by default in release on this target). ~2-5% steady-state perf
-# cost, applied uniformly across every SHA the bench builds, so SHA-vs-SHA
-# comparisons remain fair.
+# Build into a stable target dir on the data volume; force frame pointers so
+# perf record --call-graph fp produces unbroken stacks (aarch64 release omits
+# them by default). ~2-5% steady-state cost, applied uniformly across every
+# SHA the bench builds, so SHA-vs-SHA comparisons remain fair.
 export CARGO_TARGET_DIR=/data/extenddb/target
 export RUSTFLAGS="-C force-frame-pointers=yes"
 cargo build --release --bin extenddb
 install -m 755 "$CARGO_TARGET_DIR/release/extenddb" /usr/local/bin/extenddb
 
-# 5a. Inferno (Rust port of Brendan Gregg's flamegraph toolchain).
-# Provides inferno-collapse-perf + inferno-flamegraph + inferno-diff-folded.
-# Cargo install once; the binaries land in /root/.cargo/bin which is on PATH
-# under HOME=/root.
+# Inferno (Rust port of flamegraph.pl): collapse-perf + flamegraph + diff-folded.
 if ! command -v inferno-flamegraph >/dev/null 2>&1; then
   cargo install --quiet inferno --version '^0.11' --features cli
 fi
