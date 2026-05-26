@@ -1,0 +1,346 @@
+{
+  "uid": "bench-loadgen",
+  "title": "Loadgen APIs",
+  "tags": ["extenddb", "bench", "loadgen"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Sweep state",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 110,
+      "type": "stat",
+      "title": "Step",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "loadgen_step_index", "legendFormat": "step", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 111,
+      "type": "stat",
+      "title": "Iteration",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "loadgen_iteration_index", "legendFormat": "iter", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 112,
+      "type": "stat",
+      "title": "Target RPS",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "loadgen_target_rps", "legendFormat": "target", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "id": 113,
+      "type": "stat",
+      "title": "Achieved RPS",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "loadgen_achieved_rps", "legendFormat": "achieved", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "id": 114,
+      "type": "stat",
+      "title": "Error rate %",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "100 * (sum(rate(loadgen_errors_total[30s])) or sum(rate(loadgen_request_duration_seconds_count[30s])) * 0) / (sum(rate(loadgen_request_duration_seconds_count[30s])) + (sum(rate(loadgen_errors_total[30s])) or sum(rate(loadgen_request_duration_seconds_count[30s])) * 0))",
+          "legendFormat": "err%",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 115,
+      "type": "stat",
+      "title": "Bench scrape up",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "max(up{job=\"bench\"})", "legendFormat": "up", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Throughput",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 210,
+      "type": "timeseries",
+      "title": "Target vs Achieved RPS",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "loadgen_target_rps", "legendFormat": "target", "refId": "A" },
+        { "expr": "loadgen_achieved_rps", "legendFormat": "achieved", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 8 } }, "overrides": [] }
+    },
+    {
+      "id": 211,
+      "type": "timeseries",
+      "title": "Request rate by op (success vs goodput)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (op) (rate(loadgen_request_duration_seconds_count[30s])) + (sum by (op) (rate(loadgen_errors_total[30s])) or sum by (op) (rate(loadgen_request_duration_seconds_count[30s])) * 0)",
+          "legendFormat": "{{op}} attempted",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (op) (rate(loadgen_request_duration_seconds_count[30s]))",
+          "legendFormat": "{{op}} goodput",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 8 } }, "overrides": [] }
+    },
+    {
+      "id": 300,
+      "type": "row",
+      "title": "Latency by op (summary quantiles from loadgen)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 310,
+      "type": "timeseries",
+      "title": "Latency p50 / p90 / p99 / p99.9 by op (summary quantiles)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Pre-aggregated quantiles emitted by metrics-exporter-prometheus (Summary). Cannot be aggregated across LG instances. To get true cross-LG percentiles, switch the loadgen to histogram exposition.",
+      "targets": [
+        { "expr": "loadgen_request_duration_seconds{quantile=\"0.5\"}", "legendFormat": "{{op}} p50", "refId": "A" },
+        { "expr": "loadgen_request_duration_seconds{quantile=\"0.9\"}", "legendFormat": "{{op}} p90", "refId": "B" },
+        { "expr": "loadgen_request_duration_seconds{quantile=\"0.99\"}", "legendFormat": "{{op}} p99", "refId": "C" },
+        { "expr": "loadgen_request_duration_seconds{quantile=\"0.999\"}", "legendFormat": "{{op}} p99.9", "refId": "D" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "id": 320,
+      "type": "timeseries",
+      "title": "Latency envelope by op (min / avg / max)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Min and max are the floor and ceiling latencies observed in the summary's decay window. Avg is rate(sum)/rate(count) over 30s.",
+      "targets": [
+        { "expr": "loadgen_request_duration_seconds{quantile=\"0\"}", "legendFormat": "{{op}} min", "refId": "A" },
+        {
+          "expr": "sum by (op) (rate(loadgen_request_duration_seconds_sum[30s])) / sum by (op) (rate(loadgen_request_duration_seconds_count[30s]))",
+          "legendFormat": "{{op}} avg", "refId": "B"
+        },
+        { "expr": "loadgen_request_duration_seconds{quantile=\"1\"}", "legendFormat": "{{op}} max", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "id": 400,
+      "type": "row",
+      "title": "Availability and errors by op",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 410,
+      "type": "timeseries",
+      "title": "Availability % by op (success / attempted)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "100 * sum by (op) (rate(loadgen_request_duration_seconds_count[30s])) / (sum by (op) (rate(loadgen_request_duration_seconds_count[30s])) + (sum by (op) (rate(loadgen_errors_total[30s])) or sum by (op) (rate(loadgen_request_duration_seconds_count[30s])) * 0))",
+          "legendFormat": "{{op}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 3,
+          "min": 99,
+          "max": 100,
+          "custom": { "lineWidth": 2, "fillOpacity": 6, "axisSoftMin": 99 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 411,
+      "type": "timeseries",
+      "title": "Errors by op and reason (rate, 30s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (op, reason) (label_replace(rate(loadgen_errors_total[30s]), \"reason\", \"unclassified\", \"reason\", \"^$\"))",
+          "legendFormat": "{{op}} / {{reason}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "lineWidth": 1, "fillOpacity": 60, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 500,
+      "type": "row",
+      "title": "Saturation",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 510,
+      "type": "timeseries",
+      "title": "In-flight requests",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 43 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "loadgen_inflight_requests", "legendFormat": "inflight", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "id": 511,
+      "type": "timeseries",
+      "title": "Achieved / target ratio %",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 43 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "100 * loadgen_achieved_rps / clamp_min(loadgen_target_rps, 1)",
+          "legendFormat": "achieved/target",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 95 }
+            ]
+          },
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "thresholdsStyle": { "mode": "line" } }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 600,
+      "type": "row",
+      "title": "Loadgen host (LG node_exporter)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 51 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 610,
+      "type": "timeseries",
+      "title": "LG host CPU %",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{instance=\"10.42.1.228:9100\",mode=\"idle\"}[30s])))", "legendFormat": "cpu%", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "lineWidth": 2, "fillOpacity": 8 } }, "overrides": [] }
+    },
+    {
+      "id": 611,
+      "type": "timeseries",
+      "title": "LG host memory used %",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "100 * (1 - (node_memory_MemAvailable_bytes{instance=\"10.42.1.228:9100\"} / node_memory_MemTotal_bytes{instance=\"10.42.1.228:9100\"}))", "legendFormat": "mem%", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "lineWidth": 2, "fillOpacity": 8 } }, "overrides": [] }
+    },
+    {
+      "id": 612,
+      "type": "timeseries",
+      "title": "LG host network tx/rx (bps)",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "8 * sum(rate(node_network_transmit_bytes_total{instance=\"10.42.1.228:9100\",device!~\"lo|docker.*|veth.*\"}[30s]))", "legendFormat": "tx", "refId": "A" },
+        { "expr": "8 * sum(rate(node_network_receive_bytes_total{instance=\"10.42.1.228:9100\",device!~\"lo|docker.*|veth.*\"}[30s]))", "legendFormat": "rx", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bps", "custom": { "lineWidth": 2, "fillOpacity": 8 } }, "overrides": [] }
+    }
+  ]
+}

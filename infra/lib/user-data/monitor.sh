@@ -246,9 +246,11 @@ YAML
 # Dashboard JSON is fetched from the bench repo at build time so the
 # monitor doesn't need to know about it at synth time.
 DASHBOARDS_DIR=/var/lib/grafana/dashboards
-curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/bench.json   -o "$DASHBOARDS_DIR/bench.json"
-curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/hosts.json   -o "$DASHBOARDS_DIR/hosts.json"
-curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/storage.json -o "$DASHBOARDS_DIR/storage.json"
+curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/bench.json        -o "$DASHBOARDS_DIR/bench.json"
+curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/loadgen.json      -o "$DASHBOARDS_DIR/loadgen.json"
+curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/hosts.json        -o "$DASHBOARDS_DIR/hosts.json"
+curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/hosts-detail.json -o "$DASHBOARDS_DIR/hosts-detail.json"
+curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/storage.json      -o "$DASHBOARDS_DIR/storage.json"
 chown -R grafana:grafana "$DASHBOARDS_DIR" /etc/grafana/provisioning
 
 systemctl enable --now grafana-server
