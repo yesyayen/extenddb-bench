@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -198,6 +199,67 @@ export class ComputeStack extends cdk.Stack {
     new cdk.CfnOutput(this, "SsmPrefix", {
       value: SSM_PREFIX,
       description: "SSM Parameter Store prefix for bench credentials",
+    });
+
+    // SSM document: extenddb-bench-swap-sha.
+    // Operator-driven: sequential same-SUT SHA swap for compare runs.
+    // Steps: stop unit -> fetch+checkout -> cargo build --release -> install -> start -> health-poll.
+    const swapDoc = new ssm.CfnDocument(this, "SwapShaDoc", {
+      name: "extenddb-bench-swap-sha",
+      documentType: "Command",
+      documentFormat: "YAML",
+      updateMethod: "NewVersion",
+      content: {
+        schemaVersion: "2.2",
+        description:
+          "extenddb-bench: swap the SUT's ExtendDB binary to a target SHA. Same Postgres, same instance, no CDK redeploy.",
+        parameters: {
+          sha: {
+            type: "String",
+            description: "Target ExtendDB commit SHA (40-char).",
+            allowedPattern: "^[0-9a-fA-F]{7,40}$",
+          },
+        },
+        mainSteps: [
+          {
+            action: "aws:runShellScript",
+            name: "swapExtendDb",
+            inputs: {
+              runCommand: [
+                "#!/bin/bash",
+                "set -euxo pipefail",
+                "SHA={{ sha }}",
+                "export HOME=/root",
+                ". /root/.cargo/env",
+                "export CARGO_TARGET_DIR=/data/extenddb/target",
+                "systemctl stop extenddb || true",
+                "cd /opt/extenddb",
+                "git fetch --quiet --all",
+                "git checkout --quiet \"$SHA\"",
+                "git rev-parse HEAD > /etc/extenddb-version",
+                "cargo build --release --bin extenddb",
+                "install -m 755 \"$CARGO_TARGET_DIR/release/extenddb\" /usr/local/bin/extenddb",
+                "systemctl start extenddb",
+                "TLS_CA=/root/.extenddb/tls/cert.pem",
+                "for i in $(seq 1 60); do",
+                "  if curl --cacert \"$TLS_CA\" -fsS https://127.0.0.1:8000/health >/dev/null 2>&1; then",
+                "    echo \"healthy after $i attempts; sha=$(cat /etc/extenddb-version)\"",
+                "    exit 0",
+                "  fi",
+                "  sleep 2",
+                "done",
+                "echo 'ExtendDB never became healthy after swap'",
+                "systemctl status extenddb --no-pager || true",
+                "exit 1",
+              ],
+            },
+          },
+        ],
+      },
+    });
+    new cdk.CfnOutput(this, "SwapShaDocName", {
+      value: swapDoc.name!,
+      description: "SSM document for sequential SHA swap (compare-shas.sh)",
     });
   }
 }
