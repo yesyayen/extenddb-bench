@@ -67,17 +67,19 @@ echo "LG=$LG_ID  SUT=$SUT_ID  SUT_IP=$SUT_IP  table=$TABLE  bucket=$RESULTS_BUCK
 # Issue a remote command on the LG and stream stdout/stderr.
 ssm_run_lg() {
   local cmd="$1"
-  # Base64-encode the multi-line script so it survives the JSON envelope as a
-  # single line. Decode and run via `bash -c "$(echo ... | base64 -d)"` on the
-  # remote.
+  # Base64 + jq for clean escaping. Pipe the b64 payload to bash -c "$(...)"
+  # on the remote so the multi-line script is reconstructed losslessly.
   local b64
   b64="$(printf '%s' "$cmd" | base64 -w0)"
   local wrapper="bash -c \"\$(echo $b64 | base64 -d)\""
+  local params_file
+  params_file="$(mktemp)"
+  jq -n --arg c "$wrapper" '{InstanceIds: [env.LG_ID], DocumentName: "AWS-RunShellScript", Parameters: {commands: [$c]}}' > "$params_file"
   local cmd_id status
-  cmd_id="$(aws ssm send-command --profile "$PROFILE" --region "$REGION" \
-    --instance-ids "$LG_ID" --document-name AWS-RunShellScript \
-    --parameters "{\"commands\":[\"${wrapper}\"]}" \
+  cmd_id="$(LG_ID="$LG_ID" aws ssm send-command --profile "$PROFILE" --region "$REGION" \
+    --cli-input-json "file://$params_file" \
     --query 'Command.CommandId' --output text)"
+  rm -f "$params_file"
   echo "ssm-cmd: $cmd_id"
   local deadline=$((SECONDS + 3600))
   while (( SECONDS < deadline )); do
