@@ -328,5 +328,36 @@ EOF
 systemctl daemon-reload
 systemctl enable --now postgres_exporter
 
+# 13. extenddb-metrics-shim: translates ExtendDB JSON /metrics to Prometheus.
+# Uses python3 (already installed via dnf) and the stdlib http.server.
+mkdir -p /etc/extenddb-bench
+curl -fsSL "https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/user-data/extenddb-metrics-shim.py" \
+  -o /usr/local/bin/extenddb-metrics-shim
+chmod 755 /usr/local/bin/extenddb-metrics-shim
+
+useradd -r -s /sbin/nologin extenddb_metrics 2>/dev/null || true
+cat > /etc/systemd/system/extenddb-metrics-shim.service <<EOF
+[Unit]
+Description=ExtendDB JSON metrics -> Prometheus shim
+After=extenddb.service
+Wants=extenddb.service
+
+[Service]
+Type=simple
+User=extenddb_metrics
+Environment=EXTENDDB_METRICS_UPSTREAM=https://$SUT_PRIVATE_IP:8000/metrics?window=Last5Minutes
+ExecStart=/usr/bin/python3 /usr/local/bin/extenddb-metrics-shim
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now extenddb-metrics-shim
+
+# 14. Publish the SUT app-metrics endpoint to SSM for the monitor to scrape.
+$PUT --name "${SSM_PREFIX}sut-app-metrics-ip" --type String --value "$SUT_PRIVATE_IP:9101"
+
 mark_status "ready"
 echo ">>> SUT bootstrap complete at $(date -u +%FT%TZ)"

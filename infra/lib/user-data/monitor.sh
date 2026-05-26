@@ -75,12 +75,17 @@ scrape_configs:
   - job_name: postgres
     file_sd_configs:
       - files: ['/etc/prometheus/targets/postgres.json']
+
+  - job_name: extenddb-app
+    file_sd_configs:
+      - files: ['/etc/prometheus/targets/extenddb-app.json']
 YAML
 
 mkdir -p /etc/prometheus/targets
 echo '[]' > /etc/prometheus/targets/bench.json
 echo '[]' > /etc/prometheus/targets/node.json
 echo '[]' > /etc/prometheus/targets/postgres.json
+echo '[]' > /etc/prometheus/targets/extenddb-app.json
 
 # Periodic target refresh from SSM Parameter Store. Prometheus picks up changes
 # to file_sd targets without a reload.
@@ -92,6 +97,7 @@ AWS_REGION="__AWS_REGION_PLACEHOLDER__"
 fetch() { aws ssm get-parameter --region "$AWS_REGION" --name "$1" --query 'Parameter.Value' --output text 2>/dev/null || true; }
 SUT_IP=$(fetch "${SSM_PREFIX}sut-private-ip")
 LG_IP=$(fetch "${SSM_PREFIX}lg-private-ip")
+SUT_APP_METRICS=$(fetch "${SSM_PREFIX}sut-app-metrics-ip")
 
 emit_json() {
   local out=$1; shift
@@ -115,10 +121,15 @@ fi
 if [ -n "$SUT_IP" ] && [ "$SUT_IP" != "None" ]; then
   pg_targets=$(jq -n --arg ip "$SUT_IP" '["\($ip):9187"]')
 fi
+extenddb_app_targets='[]'
+if [ -n "$SUT_APP_METRICS" ] && [ "$SUT_APP_METRICS" != "None" ]; then
+  extenddb_app_targets=$(jq -n --arg ep "$SUT_APP_METRICS" '[$ep]')
+fi
 
-emit_json /etc/prometheus/targets/bench.json    "$bench_targets" '{"role":"lg"}'
-emit_json /etc/prometheus/targets/node.json     "$node_targets"  '{}'
-emit_json /etc/prometheus/targets/postgres.json "$pg_targets"   '{"role":"sut"}'
+emit_json /etc/prometheus/targets/bench.json        "$bench_targets"        '{"role":"lg"}'
+emit_json /etc/prometheus/targets/node.json         "$node_targets"         '{}'
+emit_json /etc/prometheus/targets/postgres.json     "$pg_targets"           '{"role":"sut"}'
+emit_json /etc/prometheus/targets/extenddb-app.json "$extenddb_app_targets" '{"role":"sut"}'
 SCRIPT
 sed -i "s|__SSM_PREFIX_PLACEHOLDER__|$SSM_PREFIX|; s|__AWS_REGION_PLACEHOLDER__|$AWS_REGION|" /usr/local/bin/refresh-targets
 chmod 755 /usr/local/bin/refresh-targets
@@ -246,11 +257,10 @@ YAML
 # Dashboard JSON is fetched from the bench repo at build time so the
 # monitor doesn't need to know about it at synth time.
 DASHBOARDS_DIR=/var/lib/grafana/dashboards
-curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/bench.json        -o "$DASHBOARDS_DIR/bench.json"
-curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/loadgen.json      -o "$DASHBOARDS_DIR/loadgen.json"
-curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/hosts.json        -o "$DASHBOARDS_DIR/hosts.json"
-curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/hosts-detail.json -o "$DASHBOARDS_DIR/hosts-detail.json"
-curl -fsSL https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/storage.json      -o "$DASHBOARDS_DIR/storage.json"
+for f in bench loadgen hosts hosts-detail storage extenddb-app hosts-detailed; do
+  curl -fsSL "https://raw.githubusercontent.com/yesyayen/extenddb-bench/main/infra/lib/dashboards/$f.json" \
+    -o "$DASHBOARDS_DIR/$f.json" || echo "warning: dashboard $f.json missing in repo, skipping"
+done
 chown -R grafana:grafana "$DASHBOARDS_DIR" /etc/grafana/provisioning
 
 systemctl enable --now grafana-server
