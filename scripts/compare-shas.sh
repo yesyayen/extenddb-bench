@@ -113,17 +113,16 @@ ACCESS_KEY=\$(aws ssm get-parameter --region $REGION --name /extenddb-bench/acce
 SECRET=\$(aws ssm get-parameter --region $REGION --name /extenddb-bench/secret-access-key --with-decryption --query Parameter.Value --output text)
 TLS_B64=\$(aws ssm get-parameter --region $REGION --name /extenddb-bench/tls-cert-b64 --query Parameter.Value --output text)
 echo \"\$TLS_B64\" | base64 -d > /tmp/extenddb-ca.pem
-export AWS_ACCESS_KEY_ID=\"\$ACCESS_KEY\" AWS_SECRET_ACCESS_KEY=\"\$SECRET\" AWS_CA_BUNDLE=/tmp/extenddb-ca.pem
 SUT_IP=\$(aws ssm get-parameter --region $REGION --name /extenddb-bench/sut-private-ip --query Parameter.Value --output text)
 EP=\"https://\${SUT_IP}:8000\"
-aws dynamodb delete-table --endpoint-url \"\$EP\" --table-name $TABLE 2>/dev/null || true
+AWS_ACCESS_KEY_ID=\"\$ACCESS_KEY\" AWS_SECRET_ACCESS_KEY=\"\$SECRET\" AWS_CA_BUNDLE=/tmp/extenddb-ca.pem aws dynamodb delete-table --endpoint-url \"\$EP\" --table-name $TABLE 2>/dev/null || true
 for i in \$(seq 1 30); do
-  if ! aws dynamodb describe-table --endpoint-url \"\$EP\" --table-name $TABLE >/dev/null 2>&1; then
+  if ! AWS_ACCESS_KEY_ID=\"\$ACCESS_KEY\" AWS_SECRET_ACCESS_KEY=\"\$SECRET\" AWS_CA_BUNDLE=/tmp/extenddb-ca.pem aws dynamodb describe-table --endpoint-url \"\$EP\" --table-name $TABLE >/dev/null 2>&1; then
     break
   fi
   sleep 2
 done
-aws dynamodb create-table \\
+AWS_ACCESS_KEY_ID=\"\$ACCESS_KEY\" AWS_SECRET_ACCESS_KEY=\"\$SECRET\" AWS_CA_BUNDLE=/tmp/extenddb-ca.pem aws dynamodb create-table \\
   --endpoint-url \"\$EP\" --table-name $TABLE \\
   --attribute-definitions AttributeName=pk,AttributeType=S \\
   --key-schema AttributeName=pk,KeyType=HASH \\
