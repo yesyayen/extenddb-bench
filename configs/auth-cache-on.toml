@@ -1,0 +1,9 @@
+# Auth-cache ON (PR #122 default settings) for the candidate flamegraph leg.
+# Mirrors the PR description's [auth.cache] block exactly so this leg matches
+# the configuration a default-deploy operator would see post-merge.
+[auth.cache]
+enabled              = true
+ttl_seconds          = 60
+soft_ttl_seconds     = 30
+negative_ttl_seconds = 5
+max_entries          = 10000

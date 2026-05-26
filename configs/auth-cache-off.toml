@@ -1,0 +1,6 @@
+# Auth-cache OFF for PR #122 (feat/auth-cache-pr) flamegraph leg.
+# Forces the new wrappers into pass-through mode so this leg measures the
+# new code paths without the actual cache benefit. Diff against pr-on
+# isolates the cache effect from any incidental change in the PR.
+[auth.cache]
+enabled = false
