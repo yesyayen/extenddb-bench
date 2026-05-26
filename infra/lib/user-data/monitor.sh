@@ -84,41 +84,43 @@ echo '[]' > /etc/prometheus/targets/postgres.json
 
 # Periodic target refresh from SSM Parameter Store. Prometheus picks up changes
 # to file_sd targets without a reload.
-cat > /usr/local/bin/refresh-targets <<EOF
+cat > /usr/local/bin/refresh-targets <<'SCRIPT'
 #!/bin/bash
 set -euo pipefail
-SSM_PREFIX="$SSM_PREFIX"
-AWS_REGION="$AWS_REGION"
-fetch() { aws ssm get-parameter --region "\$AWS_REGION" --name "\$1" --query 'Parameter.Value' --output text 2>/dev/null || echo ""; }
-SUT_IP=\$(fetch "\${SSM_PREFIX}sut-private-ip")
-LG_IP=\$(fetch "\${SSM_PREFIX}lg-private-ip")
+SSM_PREFIX="__SSM_PREFIX_PLACEHOLDER__"
+AWS_REGION="__AWS_REGION_PLACEHOLDER__"
+fetch() { aws ssm get-parameter --region "$AWS_REGION" --name "$1" --query 'Parameter.Value' --output text 2>/dev/null || true; }
+SUT_IP=$(fetch "${SSM_PREFIX}sut-private-ip")
+LG_IP=$(fetch "${SSM_PREFIX}lg-private-ip")
 
-write_targets() {
-  local file=\$1; shift
-  local tmp=\$(mktemp)
-  echo "\$@" > "\$tmp"
-  mv "\$tmp" "\$file"
+emit_json() {
+  local out=$1; shift
+  jq -n --argjson tg "$1" --argjson lb "$2" '[{targets: $tg, labels: $lb}]' > "$out.tmp"
+  mv "$out.tmp" "$out"
 }
 
-bench=()
-node=()
-pg=()
-[ -n "\$LG_IP" ] && bench+=("\\\"\$LG_IP:9090\\\"") && node+=("\\\"\$LG_IP:9100\\\"")
-[ -n "\$SUT_IP" ] && node+=("\\\"\$SUT_IP:9100\\\"") && pg+=("\\\"\$SUT_IP:9187\\\"")
+bench_targets='[]'
+node_targets='[]'
+pg_targets='[]'
+if [ -n "$LG_IP" ] && [ "$LG_IP" != "None" ]; then
+  bench_targets=$(jq -n --arg ip "$LG_IP" '["\($ip):9090"]')
+fi
+if [ -n "$LG_IP" ] && [ "$LG_IP" != "None" ] && [ -n "$SUT_IP" ] && [ "$SUT_IP" != "None" ]; then
+  node_targets=$(jq -n --arg lg "$LG_IP" --arg sut "$SUT_IP" '["\($lg):9100", "\($sut):9100"]')
+elif [ -n "$LG_IP" ] && [ "$LG_IP" != "None" ]; then
+  node_targets=$(jq -n --arg lg "$LG_IP" '["\($lg):9100"]')
+elif [ -n "$SUT_IP" ] && [ "$SUT_IP" != "None" ]; then
+  node_targets=$(jq -n --arg sut "$SUT_IP" '["\($sut):9100"]')
+fi
+if [ -n "$SUT_IP" ] && [ "$SUT_IP" != "None" ]; then
+  pg_targets=$(jq -n --arg ip "$SUT_IP" '["\($ip):9187"]')
+fi
 
-bench_json="[{\\\"targets\\\":[\$(IFS=,; echo "\${bench[*]}")],\\\"labels\\\":{\\\"role\\\":\\\"lg\\\"}}]"
-node_json="[{\\\"targets\\\":[\$(IFS=,; echo "\${node[*]}")]}]"
-pg_json="[{\\\"targets\\\":[\$(IFS=,; echo "\${pg[*]}")],\\\"labels\\\":{\\\"role\\\":\\\"sut\\\"}}]"
-
-# Empty target arrays should serialize as []
-[ \${#bench[@]} -eq 0 ] && bench_json='[]'
-[ \${#node[@]} -eq 0 ] && node_json='[]'
-[ \${#pg[@]} -eq 0 ] && pg_json='[]'
-
-write_targets /etc/prometheus/targets/bench.json    "\$bench_json"
-write_targets /etc/prometheus/targets/node.json     "\$node_json"
-write_targets /etc/prometheus/targets/postgres.json "\$pg_json"
-EOF
+emit_json /etc/prometheus/targets/bench.json    "$bench_targets" '{"role":"lg"}'
+emit_json /etc/prometheus/targets/node.json     "$node_targets"  '{}'
+emit_json /etc/prometheus/targets/postgres.json "$pg_targets"   '{"role":"sut"}'
+SCRIPT
+sed -i "s|__SSM_PREFIX_PLACEHOLDER__|$SSM_PREFIX|; s|__AWS_REGION_PLACEHOLDER__|$AWS_REGION|" /usr/local/bin/refresh-targets
 chmod 755 /usr/local/bin/refresh-targets
 /usr/local/bin/refresh-targets || true
 
