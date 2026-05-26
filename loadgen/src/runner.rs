@@ -190,11 +190,11 @@ async fn run_step(
     let lg_handle = lg.spawn_sampler();
 
     // governor's RateLimiter::until_ready holds at most `burst` tokens.
-    // We size the burst to `connections` so a brief stall doesn't permanently
-    // depress achieved RPS; the open-loop guarantee is still that the *time
-    // average* matches `target_rps`.
-    let quota = Quota::per_second(NonZeroU32::new(target_rps as u32).context("target_rps must be > 0 and < 2^32")?)
-        .allow_burst(NonZeroU32::new(connections.max(1)).context("connections must be > 0")?);
+    // We use the default burst (== rate per second) which gives the open-loop
+    // pacing the design wants: the long-term rate is target_rps; transient
+    // overshoot is allowed for at most one second's worth of work.
+    let target_u32 = u32::try_from(target_rps).context("target_rps must fit in u32")?;
+    let quota = Quota::per_second(NonZeroU32::new(target_u32).context("target_rps must be > 0")?);
     let limiter: Arc<Limiter> = Arc::new(RateLimiter::direct(quota));
 
     // warmup histogram is discarded; measure histogram is what we keep.
@@ -203,6 +203,8 @@ async fn run_step(
 
     let successes = Arc::new(AtomicU64::new(0));
     let errors = Arc::new(AtomicU64::new(0));
+    let warmup_successes = Arc::new(AtomicU64::new(0));
+    let warmup_errors = Arc::new(AtomicU64::new(0));
     let inflight = Arc::new(AtomicU64::new(0));
 
     let warmup_until = Instant::now() + warmup;
@@ -227,8 +229,8 @@ async fn run_step(
         };
         let workload = workload.clone();
         let client = client.clone();
-        let successes = successes.clone();
-        let errors = errors.clone();
+        let successes = if in_warmup { warmup_successes.clone() } else { successes.clone() };
+        let errors = if in_warmup { warmup_errors.clone() } else { errors.clone() };
         let inflight = inflight.clone();
         next_seed = next_seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let seed = next_seed;
