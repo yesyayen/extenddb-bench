@@ -221,20 +221,24 @@ async fn run_step(
         }
         // Open-loop pacing: wait for the next token to be available.
         limiter.until_ready().await;
+        let in_warmup = now < warmup_until;
 
         // LG safety belt: if too many tasks are in flight (e.g. SUT can't
         // keep up at high target RPS), drop new dispatches and count them
         // as overflow. This prevents the LG from spawning millions of
-        // tokio tasks when the SUT is saturated. The achieved_rps will
-        // drop below target, which is the correct signal.
+        // tokio tasks when the SUT is saturated. Overflow drops increment
+        // the corresponding errors counter so they trigger the cliff rule.
         let max_inflight: u64 = (connections as u64).saturating_mul(8).max(256);
         if inflight.load(Ordering::Relaxed) >= max_inflight {
-            errors.fetch_add(1, Ordering::Relaxed);
+            if in_warmup {
+                warmup_errors.fetch_add(1, Ordering::Relaxed);
+            } else {
+                errors.fetch_add(1, Ordering::Relaxed);
+            }
             ::metrics::counter!(metrics::names::ERRORS_TOTAL, "op" => "putitem", "reason" => "lg_overflow").increment(1);
             continue;
         }
 
-        let in_warmup = now < warmup_until;
         let target_hist = if in_warmup {
             warmup_hist.clone()
         } else {
