@@ -264,14 +264,14 @@ apiVersion: 1
 datasources:
   - name: ExtendDB-PG
     uid: extenddb-pg
-    type: postgres
+    type: grafana-postgresql-datasource
     access: proxy
     url: ${sut_ip}:5432
     user: grafana_ro
-    database: extenddb_catalog
     isDefault: false
     editable: false
     jsonData:
+      database: extenddb_catalog
       sslmode: disable
       postgresVersion: 1500
       timescaledb: false
