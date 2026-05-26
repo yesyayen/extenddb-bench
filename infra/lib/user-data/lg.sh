@@ -48,6 +48,39 @@ cd /opt/extenddb-bench/loadgen
 cargo build --release --bin extenddb-bench
 install -m 755 target/release/extenddb-bench /usr/local/bin/extenddb-bench
 
+# node_exporter for host metrics (CPU, mem, net, disk).
+NODE_EXP_VERSION=1.8.2
+if [ ! -x /usr/local/bin/node_exporter ]; then
+  cd /tmp
+  curl -fsSL "https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXP_VERSION}/node_exporter-${NODE_EXP_VERSION}.linux-arm64.tar.gz" -o ne.tgz
+  tar xzf ne.tgz
+  install -m 755 "node_exporter-${NODE_EXP_VERSION}.linux-arm64/node_exporter" /usr/local/bin/node_exporter
+fi
+useradd -r -s /sbin/nologin node_exporter 2>/dev/null || true
+cat > /etc/systemd/system/node_exporter.service <<EOF
+[Unit]
+Description=node_exporter
+After=network-online.target
+
+[Service]
+Type=simple
+User=node_exporter
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=0.0.0.0:9100
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now node_exporter
+
+# Publish LG IP to SSM so the monitor can scrape us.
+IMDS_TOKEN=$(curl -s -X PUT 'http://169.254.169.254/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')
+LG_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+aws ssm put-parameter --region "$AWS_REGION" --overwrite \
+  --name "${SSM_PREFIX}lg-private-ip" --type String --value "$LG_IP"
+
 # Convenience wrapper that fetches creds from SSM and execs extenddb-bench.
 cat > /usr/local/bin/bench-run <<EOF
 #!/bin/bash

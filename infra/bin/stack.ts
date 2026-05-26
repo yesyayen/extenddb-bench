@@ -3,6 +3,7 @@ import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
 import { NetworkStack } from "../lib/network-stack";
 import { ComputeStack } from "../lib/compute-stack";
+import { MonitorStack } from "../lib/monitor-stack";
 import { resolveExtendDbRef } from "../lib/pr-resolver";
 
 const app = new cdk.App();
@@ -25,6 +26,12 @@ const ref = resolveExtendDbRef({
 });
 
 const network = new NetworkStack(app, "ExtendDbBenchNetwork", { env });
+const monitor = new MonitorStack(app, "ExtendDbBenchMonitor", {
+  env,
+  vpc: network.vpc,
+  benchSecurityGroup: network.benchSecurityGroup,
+});
+monitor.addDependency(network);
 const compute = new ComputeStack(app, "ExtendDbBenchCompute", {
   env,
   vpc: network.vpc,

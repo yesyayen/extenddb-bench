@@ -1,0 +1,80 @@
+{
+  "uid": "bench-hosts",
+  "title": "extenddb-bench hosts",
+  "tags": ["extenddb", "bench", "host"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "CPU usage % (1 - idle)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[30s])))", "legendFormat": "{{instance}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Load average (5m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "node_load5", "legendFormat": "{{instance}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Memory used %",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))", "legendFormat": "{{instance}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Network RX/TX (bps)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "8 * sum by (instance) (rate(node_network_receive_bytes_total{device!~\"lo|docker.*|veth.*\"}[30s]))", "legendFormat": "rx {{instance}}", "refId": "A" },
+        { "expr": "8 * sum by (instance) (rate(node_network_transmit_bytes_total{device!~\"lo|docker.*|veth.*\"}[30s]))", "legendFormat": "tx {{instance}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bps" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Disk IO (bytes/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "sum by (instance) (rate(node_disk_read_bytes_total[30s]))", "legendFormat": "read {{instance}}", "refId": "A" },
+        { "expr": "sum by (instance) (rate(node_disk_written_bytes_total[30s]))", "legendFormat": "write {{instance}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Disk IOPS",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        { "expr": "sum by (instance) (rate(node_disk_reads_completed_total[30s]))", "legendFormat": "read iops {{instance}}", "refId": "A" },
+        { "expr": "sum by (instance) (rate(node_disk_writes_completed_total[30s]))", "legendFormat": "write iops {{instance}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "iops" }, "overrides": [] }
+    }
+  ]
+}

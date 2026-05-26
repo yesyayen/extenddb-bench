@@ -64,6 +64,11 @@ if [ ! -d "$PGDATA" ]; then
   sudo -u postgres /usr/bin/initdb -D "$PGDATA" --auth-local=peer --auth-host=md5 --no-locale --encoding=UTF8
   # Listen on localhost only.
   sed -i "s/^#listen_addresses.*/listen_addresses = '127.0.0.1'/" "$PGDATA/postgresql.conf"
+  # Enable pg_stat_statements (needed by postgres_exporter --collector.stat_statements).
+  sed -i "s/^#shared_preload_libraries.*/shared_preload_libraries = 'pg_stat_statements'/" "$PGDATA/postgresql.conf"
+  echo "pg_stat_statements.track = 'all'"     >> "$PGDATA/postgresql.conf"
+  echo "pg_stat_statements.max = 10000"        >> "$PGDATA/postgresql.conf"
+  echo "track_io_timing = on"                  >> "$PGDATA/postgresql.conf"
 fi
 
 # Override the systemd unit's PGDATA via a drop-in.
@@ -245,6 +250,83 @@ $PUT --name "${SSM_PREFIX}table-name"         --type String       --value "$TABL
 # Also dump the TLS cert as a parameter so the LG can trust the self-signed cert.
 TLS_CERT_B64="$(base64 -w0 < "$TLS_CA")"
 $PUT --name "${SSM_PREFIX}tls-cert-b64"       --type String       --value "$TLS_CERT_B64"
+
+# 11. node_exporter for host metrics.
+NODE_EXP_VERSION=1.8.2
+if [ ! -x /usr/local/bin/node_exporter ]; then
+  cd /tmp
+  curl -fsSL "https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXP_VERSION}/node_exporter-${NODE_EXP_VERSION}.linux-arm64.tar.gz" -o ne.tgz
+  tar xzf ne.tgz
+  install -m 755 "node_exporter-${NODE_EXP_VERSION}.linux-arm64/node_exporter" /usr/local/bin/node_exporter
+fi
+useradd -r -s /sbin/nologin node_exporter 2>/dev/null || true
+cat > /etc/systemd/system/node_exporter.service <<EOF
+[Unit]
+Description=node_exporter
+After=network-online.target
+
+[Service]
+Type=simple
+User=node_exporter
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=0.0.0.0:9100
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now node_exporter
+
+# 12. postgres_exporter for Postgres metrics.
+# Create a low-privilege monitoring role with pg_monitor.
+PG_EXPORTER_PASS="$(openssl rand -hex 16)"
+sudo -u postgres /usr/bin/psql <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pg_exporter') THEN
+    CREATE ROLE pg_exporter LOGIN PASSWORD '$PG_EXPORTER_PASS';
+  ELSE
+    ALTER ROLE pg_exporter WITH LOGIN PASSWORD '$PG_EXPORTER_PASS';
+  END IF;
+END \$\$;
+GRANT pg_monitor TO pg_exporter;
+-- pg_stat_statements requires GRANT on the extension's view.
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+SQL
+
+PGE_VERSION=0.15.0
+if [ ! -x /usr/local/bin/postgres_exporter ]; then
+  cd /tmp
+  curl -fsSL "https://github.com/prometheus-community/postgres_exporter/releases/download/v${PGE_VERSION}/postgres_exporter-${PGE_VERSION}.linux-arm64.tar.gz" -o pge.tgz
+  tar xzf pge.tgz
+  install -m 755 "postgres_exporter-${PGE_VERSION}.linux-arm64/postgres_exporter" /usr/local/bin/postgres_exporter
+fi
+useradd -r -s /sbin/nologin postgres_exporter 2>/dev/null || true
+mkdir -p /etc/postgres_exporter
+cat > /etc/postgres_exporter/env <<EOF
+DATA_SOURCE_NAME=postgresql://pg_exporter:$PG_EXPORTER_PASS@127.0.0.1:5432/postgres?sslmode=disable
+EOF
+chmod 600 /etc/postgres_exporter/env
+chown postgres_exporter:postgres_exporter /etc/postgres_exporter/env
+cat > /etc/systemd/system/postgres_exporter.service <<EOF
+[Unit]
+Description=postgres_exporter
+After=postgresql.service network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=postgres_exporter
+EnvironmentFile=/etc/postgres_exporter/env
+ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=0.0.0.0:9187 --collector.stat_statements
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now postgres_exporter
 
 mark_status "ready"
 echo ">>> SUT bootstrap complete at $(date -u +%FT%TZ)"

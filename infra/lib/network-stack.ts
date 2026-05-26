@@ -56,6 +56,21 @@ export class NetworkStack extends cdk.Stack {
       ec2.Port.tcp(9090),
       "extenddb-bench Prometheus exposition (intra-SG)",
     );
+    this.benchSecurityGroup.addIngressRule(
+      this.benchSecurityGroup,
+      ec2.Port.tcp(9100),
+      "node_exporter (intra-SG)",
+    );
+    this.benchSecurityGroup.addIngressRule(
+      this.benchSecurityGroup,
+      ec2.Port.tcp(9187),
+      "postgres_exporter (intra-SG)",
+    );
+    this.benchSecurityGroup.addIngressRule(
+      this.benchSecurityGroup,
+      ec2.Port.tcp(3000),
+      "Grafana UI (intra-SG; operator reaches via SSM port-forward)",
+    );
 
     this.resultsBucket = new s3.Bucket(this, "ResultsBucket", {
       bucketName: `extenddb-bench-results-${cdk.Stack.of(this).account}`,

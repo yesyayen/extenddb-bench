@@ -2,7 +2,6 @@ import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
-import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -22,16 +21,6 @@ export interface ComputeStackProps extends cdk.StackProps {
 }
 
 const SSM_PREFIX = "/extenddb-bench/";
-const SSM_PARAM_NAMES = [
-  "admin-password",
-  "access-key-id",
-  "secret-access-key",
-  "account-id",
-  "sut-private-ip",
-  "extenddb-sha",
-  "table-name",
-  "tls-cert-b64",
-];
 
 export class ComputeStack extends cdk.Stack {
   public readonly sutInstance: ec2.Instance;
@@ -90,16 +79,11 @@ export class ComputeStack extends cdk.Stack {
       }),
     );
 
-    // SSM Parameter resources (placeholders): created by CDK so they are
-    // cleaned up by `cdk destroy`. The SUT user-data overwrites them with
-    // real values at boot via `aws ssm put-parameter --overwrite`.
-    for (const name of SSM_PARAM_NAMES) {
-      new ssm.StringParameter(this, `Param${name}`, {
-        parameterName: `${SSM_PREFIX}${name}`,
-        stringValue: "<unset>",
-        description: `extenddb-bench placeholder for ${name}; populated by SUT user-data`,
-      });
-    }
+    // Note: SSM Parameter Store values are populated by the SUT/LG/monitor
+    // user-data via `aws ssm put-parameter --overwrite`. We do NOT create
+    // them as CDK resources because they need to survive Compute-stack
+    // destroy (the monitor stack reads them after compute is gone).
+    // The IAM policy below grants both put and delete on the prefix.
 
     // Render user-data scripts with placeholders substituted.
     const sutUserData = renderUserData("sut.sh", {
