@@ -74,9 +74,10 @@ ssm_run_lg() {
   local wrapper="bash -c \"\$(echo $b64 | base64 -d)\""
   local params_file
   params_file="$(mktemp)"
-  jq -n --arg c "$wrapper" '{InstanceIds: [env.LG_ID], DocumentName: "AWS-RunShellScript", Parameters: {commands: [$c]}}' > "$params_file"
+  jq -n --arg c "$wrapper" --arg lg "$LG_ID" \
+    '{InstanceIds: [$lg], DocumentName: "AWS-RunShellScript", Parameters: {commands: [$c]}}' > "$params_file"
   local cmd_id status
-  cmd_id="$(LG_ID="$LG_ID" aws ssm send-command --profile "$PROFILE" --region "$REGION" \
+  cmd_id="$(aws ssm send-command --profile "$PROFILE" --region "$REGION" \
     --cli-input-json "file://$params_file" \
     --query 'Command.CommandId' --output text)"
   rm -f "$params_file"
