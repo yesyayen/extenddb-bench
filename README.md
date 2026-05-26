@@ -245,6 +245,41 @@ AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PROFILE=asomasun-admin \
 A `deploy → sweep → destroy` cycle (~30 min) is ~$1. Leaving the monitor
 alive for review is ~$1/day.
 
+## Comparing two SHAs (v0.3)
+
+The `compare-shas.sh` script does a same-SUT, sequential head-to-head
+run of two ExtendDB SHAs and emits a single `compare-summary.md` with
+bootstrap-CI-backed verdicts per step.
+
+```bash
+# Workload diversity: read, update, mixed.
+scripts/compare-shas.sh main 140a1e5e getitem-1kb
+scripts/compare-shas.sh main 140a1e5e updateitem-1kb
+scripts/compare-shas.sh main 140a1e5e mixed-rw \
+    --rps-sweep-file loadgen/sweeps/mixed.csv
+
+# Critical guard test: same SHA on both sides MUST be `within_noise`
+# on every step. If it isn't, the stat test or the table-reset is wrong.
+scripts/compare-shas.sh main main putitem-1kb
+```
+
+Flow per leg: `swap-sha.sh <sha>` (cargo build + `/health` poll on the SUT)
+→ drop and recreate the bench table → ensure pre-seed (S3 stamp keyed by SHA)
+→ sweep → S3 sync → on the operator laptop, `extenddb-bench report-compare`
+fuses both legs into one dir.
+
+Verdict labels:
+- `regression` (exit 1)
+- `within_noise`
+- `improvement`
+
+The per-step verdict is the worse of `achieved_rps` and `p99_us`; the
+headline is the worst step.
+
+The `bench` and `extenddb-app` dashboards render an annotation marker
+(`leg=baseline` / `leg=candidate`) at each leg boundary so you can read
+the time-series with the verdicts.
+
 ## License
 
 Apache 2.0 (matches ExtendDB).

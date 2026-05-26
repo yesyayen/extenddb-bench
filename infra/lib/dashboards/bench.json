@@ -1,24 +1,52 @@
 {
   "uid": "bench-live",
   "title": "extenddb-bench live",
-  "tags": ["extenddb", "bench"],
+  "tags": [
+    "extenddb",
+    "bench"
+  ],
   "schemaVersion": 39,
   "version": 1,
   "refresh": "5s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "timeseries",
       "title": "Target vs Achieved RPS",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-        { "expr": "loadgen_target_rps", "legendFormat": "target", "refId": "A" },
-        { "expr": "loadgen_achieved_rps", "legendFormat": "achieved", "refId": "B" }
+        {
+          "expr": "loadgen_target_rps",
+          "legendFormat": "target",
+          "refId": "A"
+        },
+        {
+          "expr": "loadgen_achieved_rps",
+          "legendFormat": "achieved",
+          "refId": "B"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
         "overrides": []
       }
     },
@@ -26,16 +54,45 @@
       "id": 2,
       "type": "timeseries",
       "title": "Request latency percentiles (s)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.50, sum by (le) (rate(loadgen_request_duration_seconds_bucket[30s])))", "legendFormat": "p50", "refId": "A" },
-        { "expr": "histogram_quantile(0.90, sum by (le) (rate(loadgen_request_duration_seconds_bucket[30s])))", "legendFormat": "p90", "refId": "B" },
-        { "expr": "histogram_quantile(0.99, sum by (le) (rate(loadgen_request_duration_seconds_bucket[30s])))", "legendFormat": "p99", "refId": "C" },
-        { "expr": "histogram_quantile(0.999, sum by (le) (rate(loadgen_request_duration_seconds_bucket[30s])))", "legendFormat": "p99.9", "refId": "D" }
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(loadgen_request_duration_seconds_bucket[30s])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum by (le) (rate(loadgen_request_duration_seconds_bucket[30s])))",
+          "legendFormat": "p90",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(loadgen_request_duration_seconds_bucket[30s])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.999, sum by (le) (rate(loadgen_request_duration_seconds_bucket[30s])))",
+          "legendFormat": "p99.9",
+          "refId": "D"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "lineWidth": 2 } },
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
         "overrides": []
       }
     },
@@ -43,34 +100,191 @@
       "id": 3,
       "type": "timeseries",
       "title": "In-flight requests",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-        { "expr": "loadgen_inflight_requests", "legendFormat": "inflight", "refId": "A" }
+        {
+          "expr": "loadgen_inflight_requests",
+          "legendFormat": "inflight",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 4,
       "type": "timeseries",
       "title": "Errors by reason (rate, 30s)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-        { "expr": "sum by (reason) (rate(loadgen_errors_total[30s]))", "legendFormat": "{{reason}}", "refId": "A" }
+        {
+          "expr": "sum by (reason) (rate(loadgen_errors_total[30s]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 5,
       "type": "stat",
       "title": "Step / Iteration",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-        { "expr": "loadgen_step_index", "legendFormat": "step", "refId": "A" },
-        { "expr": "loadgen_iteration_index", "legendFormat": "iter", "refId": "B" }
+        {
+          "expr": "loadgen_step_index",
+          "legendFormat": "step",
+          "refId": "A"
+        },
+        {
+          "expr": "loadgen_iteration_index",
+          "legendFormat": "iter",
+          "refId": "B"
+        }
       ]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Read/Write split (mixed-rw)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Read latency (s) - split (mixed-rw / getitem)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(loadgen_request_duration_seconds_bucket{op=\"read\"}[1m])))",
+          "legendFormat": "p99 read",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(loadgen_request_duration_seconds_bucket{op=\"write\"}[1m])))",
+          "legendFormat": "p99 write",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "RPS by op kind (read vs write)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (op) (rate(loadgen_request_duration_seconds_count[1m]))",
+          "legendFormat": "{{op}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      }
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "workload",
+        "label": "Workload",
+        "type": "custom",
+        "query": "putitem-1kb,getitem-1kb,updateitem-1kb,mixed-rw",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "multi": false
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Bench leg",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "enable": true,
+        "expr": "loadgen_bench_leg_marker",
+        "iconColor": "blue",
+        "tagKeys": "leg",
+        "titleFormat": "leg={{leg}}",
+        "step": "10s"
+      }
+    ]
+  }
 }

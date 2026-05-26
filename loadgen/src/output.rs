@@ -32,6 +32,13 @@ pub struct Meta {
     pub target: String,
     pub aws_region: String,
     pub table_name: String,
+    /// Leg of a compare run (`baseline` / `candidate`) when set.
+    /// Optional and additive: existing v0.1 single-leg meta.json stays valid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leg: Option<String>,
+    /// Compare-run id when this run is a leg.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compare_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

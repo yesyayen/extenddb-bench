@@ -109,9 +109,17 @@ pub async fn run(args: RunArgs) -> Result<()> {
         target: args.target.clone(),
         aws_region: args.aws_region.clone(),
         table_name: args.table_name.clone(),
+        leg: args.leg_tag.clone(),
+        compare_id: args.compare_id.clone(),
     };
     output::write_meta(&output_dir, &meta)?;
     tracing::info!(target: "extenddb_bench", out = %output_dir.display(), "results dir created");
+
+    // Emit the leg-tag marker as a Prometheus gauge with a label, used by
+    // the M5 dashboard's annotation source.
+    if let Some(leg) = args.leg_tag.as_deref() {
+        ::metrics::gauge!(metrics::names::BENCH_LEG_MARKER, "leg" => leg.to_owned()).set(1.0);
+    }
 
     let mut all_records: Vec<output::StepRecord> = Vec::new();
 
