@@ -23,6 +23,7 @@ async-trait = "0.1"
 aws-config = { version = "1.5", features = ["behavior-version-latest"] }
 aws-credential-types = "1.2"
 aws-sdk-dynamodb = "1.55"
+aws-sdk-s3 = "1.55"
 # Custom HTTP client for self-signed TLS (skip-verify or custom CA bundle).
 # The AWS SDK 1.x default builder for hyper is gated on hyper 0.14.
 aws-smithy-runtime = { version = "1.7", features = ["connector-hyper-0-14-x"] }

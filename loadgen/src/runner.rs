@@ -43,7 +43,37 @@ pub async fn run(args: RunArgs) -> Result<()> {
     };
     tracing::info!(target: "extenddb_bench", steps = ?sweep.steps, "sweep parsed");
 
-    let workload = workload::build(&args.workload, &args.table_name, args.keyspace, args.item_size_bytes)?;
+    let workload = workload::build(&args.workload, &args.table_name, args.keyspace, args.item_size_bytes, &args.rw_ratio)?;
+
+    // Pre-seed gating.
+    if args.ensure_preseed || workload.requires_preseed() {
+        let preseed_args = crate::cli::PreseedArgs {
+            target: args.target.clone(),
+            table_name: args.table_name.clone(),
+            keyspace: args.keyspace,
+            item_size_bytes: args.item_size_bytes,
+            connections: 256,
+            preseed_rps: args.preseed_rps,
+            aws_region: args.aws_region.clone(),
+            tls_ca_bundle: args.tls_ca_bundle.clone(),
+            tls_insecure: args.tls_insecure,
+            stamp_bucket: args.stamp_bucket.clone(),
+            extenddb_sha: args.extenddb_sha.clone(),
+            force: false,
+        };
+        match crate::preseed::run(preseed_args).await? {
+            crate::preseed::Outcome::Seeded(m) => {
+                tracing::info!(
+                    target: "extenddb_bench",
+                    items = m.items_written, rps = m.achieved_rps,
+                    "preseed complete"
+                );
+            }
+            crate::preseed::Outcome::Skipped(reason) => {
+                tracing::info!(target: "extenddb_bench", %reason, "preseed skipped");
+            }
+        }
+    }
 
     let client_cfg = ClientConfig {
         endpoint_url: args.target.clone(),
