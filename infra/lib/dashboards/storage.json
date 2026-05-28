@@ -45,10 +45,109 @@
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
     },
     {
+      "id": 100,
+      "type": "row",
+      "title": "Per-database breakdown (catalog vs data)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 110,
+      "type": "timeseries",
+      "title": "Postgres backends by database",
+      "description": "pg_stat_database_numbackends per datname. A flatline at the catalog pool's max indicates connection pool saturation.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "pg_stat_database_numbackends{datname=~\"extenddb|extenddb_catalog\"}",
+          "legendFormat": "{{datname}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "spanNulls": true }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 111,
+      "type": "stat",
+      "title": "Catalog TX per app request",
+      "description": "rate(catalog xact_commit) / rate(extenddb_request_count_count) over 1m. Asymptote without caching is the per-request fan-out factor; with the auth+metadata cache it should drop near zero.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"extenddb_catalog\"}[1m])) / clamp_min(sum(rate(extenddb_request_count_count[1m])), 1)",
+          "legendFormat": "tx/req",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 2 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 120,
+      "type": "timeseries",
+      "title": "Postgres TPS by database",
+      "description": "rate(xact_commit + xact_rollback) split by datname. Catalog drop reflects auth/metadata cache hits.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (datname) (rate(pg_stat_database_xact_commit{datname=~\"extenddb|extenddb_catalog\"}[30s]) + rate(pg_stat_database_xact_rollback{datname=~\"extenddb|extenddb_catalog\"}[30s]))",
+          "legendFormat": "{{datname}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 8 } }, "overrides": [] }
+    },
+    {
+      "id": 121,
+      "type": "timeseries",
+      "title": "Postgres block I/O by database (hit + read)",
+      "description": "rate(blks_hit + blks_read) split by datname. Drop on catalog when cached pages no longer need to be fetched per request.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (datname) (rate(pg_stat_database_blks_hit{datname=~\"extenddb|extenddb_catalog\"}[30s]) + rate(pg_stat_database_blks_read{datname=~\"extenddb|extenddb_catalog\"}[30s]))",
+          "legendFormat": "{{datname}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 8 } }, "overrides": [] }
+    },
+    {
       "id": 4,
       "type": "timeseries",
-      "title": "Block I/O",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "title": "Block I/O (aggregate)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         { "expr": "sum(rate(pg_stat_database_blks_read[30s]))", "legendFormat": "blks_read", "refId": "A" },
@@ -60,7 +159,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Top 5 query mean time (us)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         { "expr": "topk(5, pg_stat_statements_mean_time_seconds * 1e6)", "legendFormat": "{{queryid}}", "refId": "A" }
